@@ -89,6 +89,12 @@
             box-shadow: 0 15px 30px rgba(78,205,196,0.4);
         }
 
+        .file-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .audio-info {
             margin-top: 10px;
             padding: 10px;
@@ -232,6 +238,7 @@
         .control-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+            transform: none;
         }
 
         .time-display {
@@ -425,7 +432,6 @@
             }
         }
 
-        /* Scrollbar personalizado */
         .device-list::-webkit-scrollbar, .preset-list::-webkit-scrollbar {
             width: 8px;
         }
@@ -508,7 +514,7 @@
                 </div>
                 
                 <div class="seek-container">
-                    <input type="range" id="seekSlider" min="0" max="100" value="0" step="0.1" class="seek-slider">
+                    <input type="range" id="seekSlider" min="0" max="100" value="0" step="0.1" class="seek-slider" disabled>
                 </div>
 
                 <div class="track-controls">
@@ -538,8 +544,8 @@
     </div>
 
     <!-- Audio elements ocultos -->
-    <audio id="audioElement1" style="display: none;"></audio>
-    <audio id="audioElement2" style="display: none;"></audio>
+    <audio id="audioElement1" preload="auto"></audio>
+    <audio id="audioElement2" preload="auto"></audio>
 
     <script>
         class MultiTrackAudioPlayer {
@@ -547,33 +553,23 @@
                 this.audio1 = document.getElementById('audioElement1');
                 this.audio2 = document.getElementById('audioElement2');
                 this.isPlaying = false;
-                this.currentTime = 0;
-                this.duration = 0;
                 this.devices = [];
                 this.selectedDevice1 = null;
                 this.selectedDevice2 = null;
                 this.presets = JSON.parse(localStorage.getItem('audioPresets')) || {};
-                this.syncInterval = null;
                 this.isSeeking = false;
                 this.audioFiles = {1: null, 2: null};
+                this.audioLoaded = {1: false, 2: false};
 
                 this.initialize();
             }
 
             async initialize() {
                 try {
-                    // Solicitar permisos primero
                     await this.requestPermissions();
-                    
-                    // Escanear dispositivos
                     await this.scanDevices();
-                    
-                    // Setup event listeners
                     this.setupEventListeners();
-                    
-                    // Cargar presets
                     this.loadPresets();
-                    
                     this.updateStatus('Listo para cargar audios', 'ready');
                 } catch (error) {
                     console.error('Error inicializando:', error);
@@ -584,16 +580,14 @@
             async requestPermissions() {
                 document.getElementById('permissionWarning').style.display = 'block';
                 try {
-                    // Solicitar permisos de audio para enumerar dispositivos correctamente
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    // Detener el stream inmediatamente
                     stream.getTracks().forEach(track => track.stop());
                     document.getElementById('permissionWarning').style.display = 'none';
                     return true;
                 } catch (error) {
                     console.warn('Permiso de audio denegado:', error);
                     document.getElementById('permissionWarning').innerHTML = 
-                        '⚠️ Permiso denegado. Los dispositivos pueden no aparecer correctamente. Recarga la página y permite el acceso.';
+                        '⚠️ Permiso denegado. Los dispositivos pueden no aparecer correctamente.';
                     return false;
                 }
             }
@@ -608,13 +602,13 @@
                     console.log('Dispositivos encontrados:', this.devices);
                     
                     if (this.devices.length === 0) {
-                        throw new Error('No se encontraron dispositivos de salida de audio');
+                        throw new Error('No se encontraron dispositivos de salida');
                     }
                     
                     this.populateDeviceList('deviceList1', this.devices);
                     this.populateDeviceList('deviceList2', this.devices);
                     
-                    this.updateStatus(`${this.devices.length} dispositivos de audio encontrados`, 'success');
+                    this.updateStatus(`${this.devices.length} dispositivos encontrados`, 'success');
                 } catch (error) {
                     console.error('Error escaneando dispositivos:', error);
                     this.updateStatus('Error escaneando dispositivos: ' + error.message, 'error');
@@ -693,8 +687,20 @@
                 // Seek slider
                 const seekSlider = document.getElementById('seekSlider');
                 seekSlider.addEventListener('mousedown', () => this.isSeeking = true);
-                seekSlider.addEventListener('mouseup', () => this.isSeeking = false);
-                seekSlider.addEventListener('input', (e) => this.seek(e.target.value));
+                seekSlider.addEventListener('touchstart', () => this.isSeeking = true);
+                seekSlider.addEventListener('mouseup', () => { 
+                    this.isSeeking = false;
+                    this.seek(seekSlider.value);
+                });
+                seekSlider.addEventListener('touchend', () => { 
+                    this.isSeeking = false;
+                    this.seek(seekSlider.value);
+                });
+                seekSlider.addEventListener('input', (e) => {
+                    if (!this.isSeeking) return;
+                    const time = (e.target.value / 100) * this.audio1.duration;
+                    document.getElementById('currentTime').textContent = this.formatTime(time);
+                });
 
                 // Volume controls
                 document.getElementById('volume1').addEventListener('input', (e) => {
@@ -706,13 +712,19 @@
                     document.getElementById('volumeValue2').textContent = Math.round(e.target.value * 100) + '%';
                 });
 
-                // Audio events
-                this.audio1.addEventListener('loadedmetadata', () => this.updateDuration());
-                this.audio2.addEventListener('loadedmetadata', () => this.updateDuration());
+                // Audio events para sincronización
+                this.audio1.addEventListener('loadedmetadata', () => {
+                    this.audioLoaded[1] = true;
+                    this.updateDuration();
+                });
+                this.audio2.addEventListener('loadedmetadata', () => {
+                    this.audioLoaded[2] = true;
+                    this.updateDuration();
+                });
                 this.audio1.addEventListener('timeupdate', () => this.updateProgress());
-                this.audio1.addEventListener('ended', () => this.stop());
-                this.audio2.addEventListener('ended', () => this.stop());
-
+                this.audio1.addEventListener('ended', () => this.handleEnded());
+                this.audio2.addEventListener('ended', () => this.handleEnded());
+                
                 // Presets
                 document.getElementById('savePresetBtn').addEventListener('click', () => this.savePreset());
             }
@@ -727,8 +739,17 @@
                 try {
                     const url = URL.createObjectURL(file);
                     const audio = track === 1 ? this.audio1 : this.audio2;
+                    
+                    // Resetear estado
+                    this.audioLoaded[track] = false;
                     audio.src = url;
-                    audio.load();
+                    
+                    // Esperar a que el audio esté listo
+                    await new Promise((resolve, reject) => {
+                        audio.onloadedmetadata = resolve;
+                        audio.onerror = reject;
+                        audio.load();
+                    });
                     
                     this.audioFiles[track] = {
                         name: file.name,
@@ -736,7 +757,7 @@
                         url: url
                     };
                     
-                    infoDiv.innerHTML = `✅ ${file.name}<br><small>(${(file.size/1024/1024).toFixed(1)}MB)</small>`;
+                    infoDiv.innerHTML = `✅ ${file.name}<br><small>(${(file.size/1024/1024).toFixed(1)}MB - ${this.formatTime(audio.duration)})</small>`;
                     
                     this.checkReadyToPlay();
                 } catch (error) {
@@ -747,7 +768,6 @@
             }
 
             async selectDevice(element, track) {
-                // Remover selección previa
                 const container = document.getElementById(`deviceList${track}`);
                 container.querySelectorAll('.device-option').forEach(el => {
                     el.classList.remove('selected');
@@ -756,11 +776,11 @@
                 element.classList.add('selected');
                 const deviceId = element.dataset.deviceId;
                 
-                // Aplicar setSinkId al elemento de audio correspondiente
                 try {
                     const audio = track === 1 ? this.audio1 : this.audio2;
                     
                     if (typeof audio.setSinkId !== 'undefined') {
+                        // Esperar a que setSinkId complete ANTES de continuar
                         await audio.setSinkId(deviceId);
                         
                         if (track === 1) {
@@ -770,62 +790,77 @@
                         }
                         
                         const deviceLabel = element.querySelector('.device-info div').textContent;
+                        console.log(`Pista ${track} configurada en: ${deviceLabel}`);
                         this.updateStatus(`Pista ${track} → ${deviceLabel}`, 'success');
                         
                         this.checkReadyToPlay();
                     } else {
-                        throw new Error('setSinkId no está soportado en este navegador');
+                        throw new Error('setSinkId no soportado - usa Chrome/Edge');
                     }
                 } catch (error) {
                     console.error('Error configurando dispositivo:', error);
-                    this.updateStatus('Error: ' + error.message + ' - Usa Chrome/Edge', 'error');
+                    this.updateStatus('Error: ' + error.message, 'error');
                 }
             }
 
             checkReadyToPlay() {
-                const ready = this.audioFiles[1] && this.audioFiles[2] && 
+                const ready = this.audioLoaded[1] && this.audioLoaded[2] && 
                              this.selectedDevice1 && this.selectedDevice2;
                 
                 document.getElementById('playBtn').disabled = !ready;
                 document.getElementById('stopBtn').disabled = !ready;
+                document.getElementById('seekSlider').disabled = !ready;
                 
                 if (ready) {
-                    this.updateStatus('✅ Todo listo para reproducir', 'success');
+                    this.updateStatus('✅ Todo listo - Presiona Play', 'success');
                 }
             }
 
             async play() {
-                if (!this.audioFiles[1] || !this.audioFiles[2]) {
-                    this.updateStatus('Carga ambos audios primero', 'error');
+                if (!this.audioLoaded[1] || !this.audioLoaded[2]) {
+                    this.updateStatus('Espera a que ambos audios se carguen', 'error');
                     return;
                 }
 
                 if (!this.selectedDevice1 || !this.selectedDevice2) {
-                    this.updateStatus('Selecciona dispositivos de salida', 'error');
+                    this.updateStatus('Selecciona dispositivos de salida primero', 'error');
                     return;
                 }
 
-                this.isPlaying = true;
-                document.getElementById('playBtn').style.display = 'none';
-                document.getElementById('pauseBtn').style.display = 'flex';
-
                 try {
-                    // Sincronización estricta usando Promise.all
+                    this.updateStatus('▶️ Iniciando reproducción...', 'loading');
+                    
+                    // Sincronización ESTRICTA usando Promise.all
                     await Promise.all([
                         this.audio1.play(),
                         this.audio2.play()
                     ]);
                     
-                    this.updateStatus('▶️ Reproduciendo...', 'success');
+                    this.isPlaying = true;
+                    document.getElementById('playBtn').style.display = 'none';
+                    document.getElementById('pauseBtn').style.display = 'flex';
+                    
+                    this.updateStatus('▶️ Reproduciendo simultáneamente', 'success');
+                    console.log('Reproducción iniciada en ambas pistas');
+                    
                 } catch (error) {
                     console.error('Error reproduciendo:', error);
-                    this.updateStatus('Error al reproducir: ' + error.message, 'error');
-                    this.pause();
+                    this.updateStatus('Error: ' + error.message, 'error');
+                    
+                    // Intentar detener ambos si uno falla
+                    try {
+                        this.audio1.pause();
+                        this.audio2.pause();
+                    } catch (e) {}
+                    
+                    this.isPlaying = false;
                 }
             }
 
             pause() {
                 this.isPlaying = false;
+                
+                // Pausar ambos sincrónicamente
                 this.audio1.pause();
                 this.audio2.pause();
                 
@@ -837,16 +872,23 @@
 
             stop() {
                 this.pause();
+                
+                // Resetear ambos al inicio
                 this.audio1.currentTime = 0;
                 this.audio2.currentTime = 0;
+                
                 this.updateProgress();
                 this.updateStatus('⏹️ Detenido', 'ready');
             }
 
             seek(value) {
-                const time = (value / 100) * this.duration;
+                const time = (value / 100) * this.audio1.duration;
+                
+                // Sincronizar ambos al mismo tiempo
                 this.audio1.currentTime = time;
                 this.audio2.currentTime = time;
+                
+                console.log(`Seek a: ${this.formatTime(time)}`);
             }
 
             setVolume(track, value) {
@@ -858,21 +900,31 @@
             }
 
             updateDuration() {
-                this.duration = Math.max(this.audio1.duration || 0, this.audio2.duration || 0);
-                document.getElementById('duration').textContent = this.formatTime(this.duration);
+                if (this.audioLoaded[1] && this.audioLoaded[2]) {
+                    const duration = Math.max(this.audio1.duration || 0, this.audio2.duration || 0);
+                    document.getElementById('duration').textContent = this.formatTime(duration);
+                }
             }
 
             updateProgress() {
-                if (!this.isSeeking) {
+                if (!this.isSeeking && this.audioLoaded[1]) {
                     const currentTime = this.audio1.currentTime;
+                    const duration = this.audio1.duration;
                     const slider = document.getElementById('seekSlider');
-                    slider.value = (currentTime / this.duration) * 100;
+                    slider.value = (currentTime / duration) * 100;
                     document.getElementById('currentTime').textContent = this.formatTime(currentTime);
                 }
             }
 
+            handleEnded() {
+                // Solo detener si ambos terminaron
+                if (this.audio1.ended && this.audio2.ended) {
+                    this.stop();
+                }
+            }
+
             formatTime(seconds) {
-                if (isNaN(seconds)) return '00:00';
+                if (isNaN(seconds) || seconds === Infinity) return '00:00';
                 const mins = Math.floor(seconds / 60);
                 const secs = Math.floor(seconds % 60);
                 return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -937,7 +989,7 @@
                     
                     btn.addEventListener('click', (e) => {
                         if (!e.target.classList.contains('preset-delete')) {
-                            this.loadPreset(name);
+                            this.loadPreset(name, e);
                         }
                     });
                     
@@ -951,7 +1003,7 @@
                 });
             }
 
-            loadPreset(name) {
+            async loadPreset(name, event) {
                 const preset = this.presets[name];
                 if (!preset) return;
 
@@ -966,17 +1018,17 @@
                 // Seleccionar dispositivos
                 if (preset.deviceId1) {
                     const device1 = document.querySelector(`#deviceList1 [data-device-id="${preset.deviceId1}"]`);
-                    if (device1) this.selectDevice(device1, 1);
+                    if (device1) await this.selectDevice(device1, 1);
                 }
                 
                 if (preset.deviceId2) {
                     const device2 = document.querySelector(`#deviceList2 [data-device-id="${preset.deviceId2}"]`);
-                    if (device2) this.selectDevice(device2, 2);
+                    if (device2) await this.selectDevice(device2, 2);
                 }
 
                 // Marcar preset activo
                 document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
-                event.target.closest('.preset-btn').classList.add('active');
+                if (event) event.target.closest('.preset-btn').classList.add('active');
 
                 this.updateStatus(`📂 Preset "${name}" cargado`, 'success');
             }
@@ -991,11 +1043,10 @@
             }
         }
 
-        // Inicializar cuando el DOM esté listo
+        // Inicializar
         document.addEventListener('DOMContentLoaded', () => {
-            // Verificar soporte de setSinkId
             if (!HTMLMediaElement.prototype.setSinkId) {
-                alert('⚠️ Tu navegador no soporta selección de dispositivos de audio. Usa Chrome, Edge o Opera.');
+                alert('⚠️ Tu navegador no soporta selección de dispositivos. Usa Chrome, Edge u Opera.');
             }
             
             window.audioPlayer = new MultiTrackAudioPlayer();
