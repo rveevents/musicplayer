@@ -29,7 +29,6 @@
   #status.warn { background: rgba(245,158,11,0.3); }
   .time { font-size: 1.3em; font-variant-numeric: tabular-nums; min-width: 150px; }
   .preset { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px; background: #111827; border-radius: 8px; margin-top: 6px; }
-  #chInfo { font-size: 0.85em; color: #9ca3af; }
   @media (max-width: 700px) { .tracks { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -39,12 +38,10 @@
 <div id="status">Cargando…</div>
 
 <section>
-  <h3>Interfaz de salida</h3>
   <div class="row">
-    <select id="deviceSelect" style="flex:1; min-width:200px"></select>
+    <span class="info" style="flex:1">Elige una salida distinta para cada pista. Si no ves los nombres, pulsa "Detectar / permitir".</span>
     <button id="refreshBtn" class="secondary">🔄 Detectar / permitir</button>
   </div>
-  <div id="chInfo"></div>
 </section>
 
 <section class="tracks">
@@ -52,8 +49,8 @@
     <h3>Pista 1</h3>
     <input type="file" id="file1" accept="audio/*">
     <div class="info" id="info1">Sin archivo</div>
-    <label>Salida (par de canales)</label>
-    <select id="pair1"></select>
+    <label>Salida de la pista 1</label>
+    <select id="dev1"><option value="">— Elige salida —</option></select>
     <label>Volumen <span id="volVal1">80%</span></label>
     <input type="range" id="vol1" min="0" max="1" step="0.01" value="0.8">
     <label>Retardo de compensación (ms)</label>
@@ -65,8 +62,8 @@
     <h3>Pista 2</h3>
     <input type="file" id="file2" accept="audio/*">
     <div class="info" id="info2">Sin archivo</div>
-    <label>Salida (par de canales)</label>
-    <select id="pair2"></select>
+    <label>Salida de la pista 2</label>
+    <select id="dev2"><option value="">— Elige salida —</option></select>
     <label>Volumen <span id="volVal2">80%</span></label>
     <input type="range" id="vol2" min="0" max="1" step="0.01" value="0.8">
     <label>Retardo de compensación (ms)</label>
@@ -96,7 +93,7 @@
     <input type="text" id="presetName" placeholder="Nombre del preset" style="flex:1">
     <button id="savePreset">Guardar</button>
   </div>
-  <p class="info">Los presets guardan interfaz, salidas, volúmenes y retardos. Los archivos de audio hay que volver a cargarlos cada vez.</p>
+  <p class="info">Los presets guardan salidas, volúmenes, retardos y nombres de archivo. Los archivos de audio hay que volver a cargarlos cada vez.</p>
   <div id="presetList"></div>
 </section>
 
@@ -104,15 +101,15 @@
 'use strict';
 
 /* ================= ERRORES VISIBLES ================= */
-window.addEventListener('error', e => setStatusSafe('Error de script: ' + e.message, 'error'));
+window.addEventListener('error', e => setStatus('Error de script: ' + e.message, 'error'));
 window.addEventListener('unhandledrejection', e =>
-  setStatusSafe('Error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason), 'error'));
+  setStatus('Error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason), 'error'));
 
 /* ================= CONFIGURACIÓN ================= */
-const CAP = 0.8;          // tope de seguridad por pista
-const MAX_DELAY = 1.0;    // retardo máximo en segundos
-const BUS_CH = 8;         // canales del bus de salida (4 pares)
-const KEY = 'inearPresets';
+const CAP = 0.8;              // tope de seguridad por pista
+const MAX_DELAY = 1.0;        // retardo máximo en segundos
+const START_LEAD_MS = 150;    // margen para programar el arranque simultáneo
+const KEY = 'inearPresets2';
 
 const $ = id => document.getElementById(id);
 const fmt = s => {
@@ -120,61 +117,30 @@ const fmt = s => {
   const m = Math.floor(s / 60), r = Math.floor(s % 60);
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 };
+const setStatus = (msg, type = '') => { const s = $('status'); s.textContent = msg; s.className = type; };
+const level = () => +$('master').value;
 
 /* ================= ESTADO ================= */
-let playing = false, startedAt = 0, pausedAt = 0, duration = 0;
-let rafId = 0, stopTimer = 0, seekTimer = 0, seeking = false, outputChosen = false;
 let outputs = [];
-let wakeLock = null;
+let playing = false, offset = 0, wallStart = 0, duration = 0;
+let rafId = 0, stopTimer = 0, seekTimer = 0, seeking = false, wakeLock = null;
 const peakBuf = new Float32Array(1024);
 
-function setStatusSafe(msg, type = '') {
-  const s = document.getElementById('status');
-  if (s) { s.textContent = msg; s.className = type; }
-}
-const status = setStatusSafe;
-const pos = () => playing ? Math.min(duration, Math.max(0, ctx.currentTime - startedAt)) : pausedAt;
-const masterLevel = () => +$('master').value;
-
-/* ================= MOTOR DE AUDIO ================= */
-const ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-
-// Bus: 8 entradas -> master (GainNode admite 8 canales) -> salida
-// El limitador va en cada pista (es estéreo, máximo 2 canales)
-const merger = ctx.createChannelMerger(BUS_CH);
-const master = ctx.createGain();
-master.gain.value = 0;   // se sube con fade-in al dar Play
-master.channelCount = BUS_CH;
-master.channelCountMode = 'explicit';
-master.channelInterpretation = 'discrete';
-merger.connect(master);
-master.connect(ctx.destination);
-
-function configureChannels() {
-  const max = ctx.destination.maxChannelCount;
-  let ch = Math.min(BUS_CH, max - (max % 2));
-  if (ch < 2) ch = 2;
-  ctx.destination.channelCount = ch;
-  ctx.destination.channelInterpretation = 'discrete';
-  return ch;
-}
-
-// Pistas: fuente -> retardo -> volumen -> upmix estéreo -> limitador -> splitter -> pares de canales
-const tracks = [1, 2].map((n, i) => {
+/* ================= MOTOR: UN CONTEXTO POR PISTA ================= */
+// Cada pista tiene su propio AudioContext, así puede enviarse a su propia salida.
+// Cadena: fuente -> retardo -> volumen -> limitador -> salida de pista -> destino
+function makeTrack(n) {
+  const ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
   const t = {
-    n, buffer: null, name: '', src: null, pair: i,
-    delay: ctx.createDelay(MAX_DELAY),
-    gain: ctx.createGain(),
-    up: ctx.createGain(),
-    limiter: ctx.createDynamicsCompressor(),
-    split: ctx.createChannelSplitter(2),
-    analyser: ctx.createAnalyser(),
+    n, ac, buffer: null, name: '', src: null, ok: false, dev: '', label: '',
+    delay: ac.createDelay(MAX_DELAY),
+    vol: ac.createGain(),
+    limiter: ac.createDynamicsCompressor(),
+    out: ac.createGain(),
+    analyser: ac.createAnalyser(),
   };
-  t.gain.gain.value = 0.8 * CAP;
-
-  t.up.channelCount = 2;
-  t.up.channelCountMode = 'explicit';
-  t.up.channelInterpretation = 'speakers';
+  t.vol.gain.value = 0.8 * CAP;
+  t.out.gain.value = 0;   // se sube con fade-in al dar Play
 
   t.limiter.threshold.value = -1;
   t.limiter.knee.value = 0;
@@ -184,47 +150,63 @@ const tracks = [1, 2].map((n, i) => {
 
   t.analyser.fftSize = 1024;
 
-  t.delay.connect(t.gain);
-  t.gain.connect(t.up);
-  t.up.connect(t.limiter);
-  t.limiter.connect(t.split);
-  t.gain.connect(t.analyser);   // solo medidor
-  routeTrack(t);
+  t.delay.connect(t.vol);
+  t.vol.connect(t.limiter);
+  t.vol.connect(t.analyser);   // solo medidor
+  t.limiter.connect(t.out);
+  t.out.connect(ac.destination);
+
+  ac.onstatechange = () => {
+    if (playing && ac.state !== 'running') {
+      panic();
+      setStatus('⚠️ Una salida se suspendió. Silencio por seguridad.', 'error');
+    }
+  };
   return t;
-});
-
-function routeTrack(t) {
-  t.split.disconnect();
-  const L = t.pair * 2;
-  t.split.connect(merger, 0, L);
-  t.split.connect(merger, 1, L + 1);
 }
+const tracks = [makeTrack(1), makeTrack(2)];
 
-function setVol(t, v) { t.gain.gain.setTargetAtTime(v * CAP, ctx.currentTime, 0.02); }
+function setVol(t, v) { t.vol.gain.setTargetAtTime(v * CAP, t.ac.currentTime, 0.02); }
 function setDelay(t, ms) {
   const v = Math.max(0, Math.min(MAX_DELAY * 1000, +ms || 0));
-  t.delay.delayTime.setTargetAtTime(v / 1000, ctx.currentTime, 0.01);
+  t.delay.delayTime.setTargetAtTime(v / 1000, t.ac.currentTime, 0.01);
 }
 
-function rampMaster(v, sec) {
-  const now = ctx.currentTime;
-  master.gain.cancelScheduledValues(now);
-  master.gain.setValueAtTime(master.gain.value, now);
-  master.gain.linearRampToValueAtTime(v, now + sec);
+function rampTrack(t, v, sec) {
+  const g = t.out.gain, now = t.ac.currentTime;
+  g.cancelScheduledValues(now);
+  g.setValueAtTime(g.value, now);
+  g.linearRampToValueAtTime(v, now + sec);
+}
+function rampAll(v, sec) { tracks.forEach(t => rampTrack(t, v, sec)); }
+
+// Convierte un instante de reloj de pared (performance.now) al reloj de cada contexto
+function ctxTimeAt(ac, wallMs) {
+  const ts = ac.getOutputTimestamp ? ac.getOutputTimestamp() : null;
+  if (ts && ts.performanceTime > 0) {
+    return ts.contextTime + (wallMs - ts.performanceTime) / 1000;
+  }
+  return ac.currentTime + (wallMs - performance.now()) / 1000;
 }
 
-function startSources(offset) {
+/* ================= REPRODUCCIÓN ================= */
+const pos = () => playing
+  ? Math.min(duration, Math.max(offset, offset + (performance.now() - wallStart) / 1000))
+  : offset;
+
+function startSources(at) {
   stopSources();
-  const when = ctx.currentTime + 0.05;
+  const wall = performance.now() + START_LEAD_MS;
   for (const t of tracks) {
     if (!t.buffer) continue;
-    const s = ctx.createBufferSource();
+    const s = t.ac.createBufferSource();
     s.buffer = t.buffer;
     s.connect(t.delay);
-    s.start(when, Math.min(offset, t.buffer.duration));
+    s.start(ctxTimeAt(t.ac, wall), Math.min(at, t.buffer.duration));
     t.src = s;
   }
-  startedAt = when - offset;
+  offset = at;
+  wallStart = wall;
 }
 
 function stopSources() {
@@ -258,67 +240,71 @@ function updateTime(p = pos()) {
   if (!seeking) $('seek').value = duration ? (p / duration) * 1000 : 0;
 }
 
-/* ================= TRANSPORTE ================= */
 async function play() {
   if (playing) return;
-  if (!outputChosen) return status('Elige primero la interfaz de salida', 'error');
-  if (!tracks.some(t => t.buffer)) return status('Carga al menos una pista', 'error');
+  const loaded = tracks.filter(t => t.buffer);
+  if (!loaded.length) return setStatus('Carga al menos una pista', 'error');
+  const missing = loaded.filter(t => !t.ok);
+  if (missing.length) {
+    return setStatus(`Elige la salida de la pista ${missing.map(t => t.n).join(' y ')}`, 'error');
+  }
 
-  await ctx.resume();
-  if (pausedAt >= duration) pausedAt = 0;
-  startSources(pausedAt);
+  await Promise.all(tracks.map(t => t.ac.resume()));
+  if (offset >= duration) offset = 0;
+  startSources(offset);
   playing = true;
-  rampMaster(masterLevel(), 0.05);
+  rampAll(level(), 0.05);
   keepAwake(true);
   setButtons();
-  status(`▶️ Reproduciendo · latencia de salida ≈ ${Math.round((ctx.outputLatency || 0) * 1000)} ms`, 'ok');
+  const lat = tracks.map(t => `P${t.n} ${Math.round((t.ac.outputLatency || 0) * 1000)} ms`).join(' · ');
+  setStatus(`▶️ Reproduciendo · latencia de salida: ${lat}`, 'ok');
   rafId = requestAnimationFrame(loop);
 }
 
 function pause() {
   if (!playing) return;
-  pausedAt = pos();
+  offset = pos();
   playing = false;
   cancelAnimationFrame(rafId);
-  rampMaster(0, 0.03);
+  rampAll(0, 0.03);
   stopTimer = setTimeout(() => { if (!playing) stopSources(); }, 60);
   resetMeters();
   keepAwake(false);
   setButtons();
   updateTime();
-  status('⏸️ Pausado', '');
+  setStatus('⏸️ Pausado', '');
 }
 
 function stop() {
   pause();
-  pausedAt = 0;
+  offset = 0;
   updateTime(0);
-  status('⏹️ Detenido', '');
+  setStatus('⏹️ Detenido', '');
 }
 
 function panic() {
-  if (playing) pausedAt = pos();
+  if (playing) offset = pos();
   playing = false;
   cancelAnimationFrame(rafId);
-  rampMaster(0, 0.01);
+  rampAll(0, 0.01);
   stopSources();
   resetMeters();
   keepAwake(false);
   setButtons();
   updateTime();
-  status('🛑 PÁNICO: silencio total. Pulsa Play para reanudar', 'error');
+  setStatus('🛑 PÁNICO: silencio total. Pulsa Play para reanudar', 'error');
 }
 
 function seekTo(sec) {
   sec = Math.max(0, Math.min(duration, sec));
-  pausedAt = sec;
+  offset = sec;
   if (!playing) return updateTime(sec);
-  rampMaster(0, 0.02);
+  rampAll(0, 0.02);
   clearTimeout(seekTimer);
   seekTimer = setTimeout(() => {
     if (!playing) return;
     startSources(sec);
-    rampMaster(masterLevel(), 0.03);
+    rampAll(level(), 0.03);
   }, 30);
   updateTime(sec);
 }
@@ -338,7 +324,7 @@ function loop() {
   }
   if (p >= duration - 0.02) {
     pause();
-    pausedAt = 0;
+    offset = 0;
     updateTime(0);
     return;
   }
@@ -356,12 +342,12 @@ function resetMeters() { tracks.forEach(t => setMeter(t, 0)); }
 async function loadFile(t, file) {
   if (!file) return;
   if (playing) pause();
-  status(`Cargando ${file.name}…`, 'warn');
+  setStatus(`Cargando ${file.name}…`, 'warn');
   try {
-    t.buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+    t.buffer = await t.ac.decodeAudioData(await file.arrayBuffer());
     t.name = file.name;
     duration = Math.max(...tracks.map(x => x.buffer ? x.buffer.duration : 0));
-    pausedAt = Math.min(pausedAt, duration);
+    offset = Math.min(offset, duration);
     const other = tracks.find(x => x !== t && x.buffer);
     let warn = '';
     if (other && Math.abs(other.buffer.duration - t.buffer.duration) > 0.5) {
@@ -369,16 +355,16 @@ async function loadFile(t, file) {
     }
     $('info' + t.n).textContent = `✅ ${file.name} · ${fmt(t.buffer.duration)}`;
     updateTime();
-    status('Pista cargada' + warn, warn ? 'warn' : 'ok');
+    setStatus('Pista cargada' + warn, warn ? 'warn' : 'ok');
   } catch (err) {
     t.buffer = null;
     t.name = '';
     $('info' + t.n).textContent = '❌ No se pudo decodificar el archivo';
-    status('Error al cargar: ' + err.message, 'error');
+    setStatus('Error al cargar: ' + err.message, 'error');
   }
 }
 
-/* ================= SALIDA / DISPOSITIVOS ================= */
+/* ================= SALIDAS ================= */
 async function refreshDevices(askPermission = false) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
     throw new Error('Este contexto no permite acceder al audio. Abre la web por https:// en Chrome o Edge.');
@@ -389,94 +375,77 @@ async function refreshDevices(askPermission = false) {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
       s.getTracks().forEach(x => x.stop());
     } catch (_) {
-      status('Sin permiso de audio: los nombres de dispositivos pueden no verse', 'warn');
+      setStatus('Sin permiso de audio: los nombres de dispositivos pueden no verse', 'warn');
     }
   }
 
   const devs = await navigator.mediaDevices.enumerateDevices();
   outputs = devs.filter(d => d.kind === 'audiooutput');
 
-  const sel = $('deviceSelect');
-  const prev = sel.value;
-  sel.innerHTML = '<option value="">— Elige interfaz de salida —</option>';
-  outputs.forEach((d, i) => {
-    sel.add(new Option(d.label || `Dispositivo ${i + 1}`, d.deviceId));
-  });
-  if (prev && outputs.some(d => d.deviceId === prev)) sel.value = prev;
+  for (const t of tracks) {
+    const sel = $('dev' + t.n);
+    const prev = sel.value || t.dev;
+    sel.innerHTML = '<option value="">— Elige salida —</option>';
+    outputs.forEach((d, i) => sel.add(new Option(d.label || `Dispositivo ${i + 1}`, d.deviceId)));
 
-  if (outputChosen && !outputs.some(d => d.deviceId === prev)) {
-    panic();
-    outputChosen = false;
-    status('⚠️ La interfaz se desconectó. Silencio. Vuelve a elegirla.', 'error');
+    if (prev && outputs.some(d => d.deviceId === prev)) {
+      sel.value = prev;
+    } else if (t.ok) {
+      // La salida de esta pista desapareció: silencio inmediato
+      t.ok = false;
+      t.dev = '';
+      if (playing) panic();
+      rampTrack(t, 0, 0.01);
+      setStatus(`⚠️ La salida de la pista ${t.n} se desconectó. Vuelve a elegirla.`, 'error');
+    }
   }
 
-  if (!outputs.length) {
-    status('No se detectan salidas. Pulsa "Detectar / permitir".', 'warn');
-  }
+  if (!outputs.length) setStatus('No se detectan salidas. Pulsa "Detectar / permitir".', 'warn');
 }
 
-async function chooseOutput(id) {
+async function setOutput(t, id) {
   if (playing) panic();
+  if (!id) { t.ok = false; t.dev = ''; return; }
   try {
-    await ctx.setSinkId(id);
-    outputChosen = true;
-    const ch = configureChannels();
-    fillPairs(ch / 2);
-    $('chInfo').textContent = `Canales detectados: ${ctx.destination.maxChannelCount} · usando: ${ch}`;
-    if (ch < 4) {
-      status('Interfaz con solo 2 canales: ambas pistas comparten salida', 'warn');
+    await t.ac.setSinkId(id);
+    t.ok = true;
+    t.dev = id;
+    t.label = (outputs.find(d => d.deviceId === id) || {}).label || '';
+    const other = tracks.find(x => x !== t);
+    if (other.ok && other.dev === id) {
+      setStatus('⚠️ Ambas pistas están en la misma salida', 'warn');
     } else {
-      status('Salida lista', 'ok');
+      setStatus(`Pista ${t.n} → ${t.label || 'salida elegida'}`, 'ok');
     }
   } catch (err) {
-    outputChosen = false;
-    status('Error al configurar la salida: ' + err.message, 'error');
-  }
-}
-
-function fillPairs(n) {
-  for (const t of tracks) {
-    const sel = $('pair' + t.n);
-    sel.innerHTML = '';
-    for (let k = 0; k < n; k++) sel.add(new Option(`Canales ${2 * k + 1}-${2 * k + 2}`, k));
-    t.pair = t.pair < n ? t.pair : 0;
-    sel.value = t.pair;
-    routeTrack(t);
-  }
-}
-
-function pairsCount() { return $('pair1').options.length; }
-function applyPair(t, k) {
-  if (k >= 0 && k < pairsCount()) {
-    t.pair = k;
-    $('pair' + t.n).value = k;
-    routeTrack(t);
+    t.ok = false;
+    t.dev = '';
+    setStatus('Error al configurar la salida: ' + err.message, 'error');
   }
 }
 
 /* ================= PRUEBA DE SALIDA ================= */
 async function testTone(t) {
-  if (!outputChosen) return status('Elige primero la interfaz de salida', 'error');
-  await ctx.resume();
-  if (!playing) rampMaster(masterLevel(), 0.05);
-  const now = ctx.currentTime;
-  const osc = ctx.createOscillator();
+  if (!t.ok) return setStatus('Elige primero la salida de esta pista', 'error');
+  await t.ac.resume();
+  if (!playing) rampTrack(t, level(), 0.05);
+
+  const now = t.ac.currentTime;
+  const osc = t.ac.createOscillator();
   osc.frequency.value = t.n === 1 ? 440 : 660;
-  const g = ctx.createGain();
+  const g = t.ac.createGain();
   g.gain.setValueAtTime(0, now);
   g.gain.linearRampToValueAtTime(0.1, now + 0.05);
   g.gain.setValueAtTime(0.1, now + 0.9);
   g.gain.linearRampToValueAtTime(0, now + 1.0);
-  const up = ctx.createGain();
-  up.channelCount = 2;
-  up.channelCountMode = 'explicit';
-  up.channelInterpretation = 'speakers';
-  // El tono pasa por el limitador de la pista y luego por su par de salida
-  osc.connect(g); g.connect(up); up.connect(t.limiter);
+  osc.connect(g);
+  g.connect(t.limiter);
   osc.start(now);
   osc.stop(now + 1.05);
-  osc.onended = () => { up.disconnect(); g.disconnect(); };
-  status(`🔈 Tono en pista ${t.n} → ${$('pair' + t.n).selectedOptions[0].text}`, 'ok');
+  osc.onended = () => g.disconnect();
+
+  setTimeout(() => { if (!playing) rampTrack(t, 0, 0.05); }, 1100);
+  setStatus(`🔈 Tono en pista ${t.n} (${t.n === 1 ? '440' : '660'} Hz)`, 'ok');
 }
 
 /* ================= PRESETS ================= */
@@ -485,52 +454,54 @@ try { presets = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (_) { pre
 
 function savePreset() {
   const name = $('presetName').value.trim();
-  if (!name) return status('Escribe un nombre para el preset', 'error');
-  const dev = outputs.find(d => d.deviceId === $('deviceSelect').value);
+  if (!name) return setStatus('Escribe un nombre para el preset', 'error');
   presets[name] = {
-    outputLabel: dev ? dev.label : '',
-    pairs: tracks.map(t => t.pair),
+    labels: tracks.map(t => t.label),
     vols: tracks.map(t => +$('vol' + t.n).value),
     delays: tracks.map(t => +$('delay' + t.n).value),
-    master: masterLevel(),
+    master: level(),
     files: tracks.map(t => t.name),
   };
   localStorage.setItem(KEY, JSON.stringify(presets));
   $('presetName').value = '';
   renderPresets();
-  status(`💾 Preset "${name}" guardado`, 'ok');
+  setStatus(`💾 Preset "${name}" guardado`, 'ok');
 }
 
 async function loadPreset(name) {
   const p = presets[name];
   if (!p) return;
+  if (playing) panic();
 
-  const dev = outputs.find(d => d.label === p.outputLabel);
-  if (dev) {
-    $('deviceSelect').value = dev.deviceId;
-    await chooseOutput(dev.deviceId);
-  } else if (p.outputLabel) {
-    return status(`⚠️ Interfaz "${p.outputLabel}" no conectada`, 'error');
-  }
+  const missing = [];
+  for (const t of tracks) {
+    const i = t.n - 1;
+    const label = p.labels[i];
+    const dev = label ? outputs.find(d => d.label === label) : null;
+    if (dev) {
+      $('dev' + t.n).value = dev.deviceId;
+      await setOutput(t, dev.deviceId);
+    } else if (label) {
+      missing.push(label);
+    }
 
-  tracks.forEach((t, i) => {
-    applyPair(t, p.pairs[i]);
     $('vol' + t.n).value = p.vols[i];
     setVol(t, p.vols[i]);
     $('volVal' + t.n).textContent = Math.round(p.vols[i] * 100) + '%';
+
     $('delay' + t.n).value = p.delays[i];
     setDelay(t, p.delays[i]);
-    const need = p.files[i];
-    if (need && t.name !== need) {
-      $('info' + t.n).textContent = `Carga el archivo: "${need}"`;
+
+    if (p.files[i] && t.name !== p.files[i]) {
+      $('info' + t.n).textContent = `Carga el archivo: "${p.files[i]}"`;
     }
-  });
+  }
 
   $('master').value = p.master;
   $('masterVal').textContent = Math.round(p.master * 100) + '%';
-  if (playing) rampMaster(masterLevel(), 0.02);
 
-  status(`📂 Preset "${name}" cargado`, 'ok');
+  if (missing.length) setStatus(`⚠️ Salida no conectada: ${missing.join(', ')}`, 'error');
+  else setStatus(`📂 Preset "${name}" cargado`, 'ok');
 }
 
 function deletePreset(name) {
@@ -554,7 +525,9 @@ function renderPresets() {
     const info = document.createElement('div');
     info.innerHTML = '<strong></strong><br><small></small>';
     info.querySelector('strong').textContent = name;
-    info.querySelector('small').textContent = presets[name].outputLabel || 'sin interfaz';
+    const labels = presets[name].labels || [];
+    info.querySelector('small').textContent =
+      `P1: ${labels[0] || 'sin salida'} · P2: ${labels[1] || 'sin salida'}`;
     const load = document.createElement('button');
     load.textContent = 'Cargar';
     load.onclick = () => loadPreset(name);
@@ -568,16 +541,9 @@ function renderPresets() {
 }
 
 /* ================= EVENTOS Y SEGURIDAD ================= */
-ctx.onstatechange = () => {
-  if (playing && ctx.state !== 'running') {
-    panic();
-    status('⚠️ El audio se suspendió. Silencio por seguridad.', 'error');
-  }
-};
-
 if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
   navigator.mediaDevices.addEventListener('devicechange', () => {
-    refreshDevices().catch(err => status(err.message, 'error'));
+    refreshDevices().catch(err => setStatus(err.message, 'error'));
   });
 }
 
@@ -595,15 +561,10 @@ $('file1').addEventListener('change', e => loadFile(tracks[0], e.target.files[0]
 $('file2').addEventListener('change', e => loadFile(tracks[1], e.target.files[0]));
 
 $('refreshBtn').addEventListener('click', () =>
-  refreshDevices(true).catch(err => status(err.message, 'error')));
+  refreshDevices(true).catch(err => setStatus(err.message, 'error')));
 
-$('deviceSelect').addEventListener('change', e => {
-  if (!e.target.value) { outputChosen = false; return; }
-  chooseOutput(e.target.value);
-});
-
-$('pair1').addEventListener('change', e => applyPair(tracks[0], +e.target.value));
-$('pair2').addEventListener('change', e => applyPair(tracks[1], +e.target.value));
+$('dev1').addEventListener('change', e => setOutput(tracks[0], e.target.value));
+$('dev2').addEventListener('change', e => setOutput(tracks[1], e.target.value));
 
 tracks.forEach(t => {
   $('vol' + t.n).addEventListener('input', e => {
@@ -616,7 +577,7 @@ tracks.forEach(t => {
 
 $('master').addEventListener('input', e => {
   $('masterVal').textContent = Math.round(e.target.value * 100) + '%';
-  if (playing) rampMaster(masterLevel(), 0.02);
+  if (playing) rampAll(level(), 0.02);
 });
 
 $('playBtn').addEventListener('click', () => playing ? pause() : play());
@@ -638,11 +599,11 @@ $('savePreset').addEventListener('click', savePreset);
 renderPresets();
 updateTime(0);
 setButtons();
-status('Pulsa "Detectar / permitir" para ver las interfaces', 'warn');
+setStatus('Pulsa "Detectar / permitir" para ver las salidas', 'warn');
 
 refreshDevices()
-  .then(() => { if (outputs.length) status('Elige la interfaz de salida para empezar', ''); })
-  .catch(err => status(err.message, 'error'));
+  .then(() => { if (outputs.length) setStatus('Elige una salida para cada pista', ''); })
+  .catch(err => setStatus(err.message, 'error'));
 </script>
 </body>
 </html>
