@@ -36,7 +36,7 @@
 <body>
 
 <h1>🎧 Multi-Pista In-Ear</h1>
-<div id="status">Inicializando…</div>
+<div id="status">Cargando…</div>
 
 <section>
   <h3>Interfaz de salida</h3>
@@ -103,8 +103,14 @@
 <script>
 'use strict';
 
+/* ================= ERRORES VISIBLES ================= */
+// Cualquier error de script se muestra en pantalla en lugar de quedarse en silencio
+window.addEventListener('error', e => setStatusSafe('Error de script: ' + e.message, 'error'));
+window.addEventListener('unhandledrejection', e =>
+  setStatusSafe('Error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason), 'error'));
+
 /* ================= CONFIGURACIÓN ================= */
-const CAP = 0.8;          // tope de seguridad por pista (volumen máximo real = 80%)
+const CAP = 0.8;          // tope de seguridad por pista
 const MAX_DELAY = 1.0;    // retardo máximo en segundos
 const BUS_CH = 8;         // canales del bus de salida (4 pares)
 const KEY = 'inearPresets';
@@ -116,10 +122,25 @@ const fmt = s => {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 };
 
+/* ================= ESTADO ================= */
+let playing = false, startedAt = 0, pausedAt = 0, duration = 0;
+let rafId = 0, stopTimer = 0, seekTimer = 0, seeking = false, outputChosen = false;
+let outputs = [];
+let wakeLock = null;
+const peakBuf = new Float32Array(1024);
+
+function setStatusSafe(msg, type = '') {
+  const s = document.getElementById('status');
+  if (s) { s.textContent = msg; s.className = type; }
+}
+const status = setStatusSafe;
+const pos = () => playing ? Math.min(duration, Math.max(0, ctx.currentTime - startedAt)) : pausedAt;
+const masterLevel = () => +$('master').value;
+
 /* ================= MOTOR DE AUDIO ================= */
 const ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
 
-// Bus: 8 entradas mono -> 8 canales -> limitador -> master -> salida
+// Bus: 8 entradas -> limitador -> master -> salida
 const merger = ctx.createChannelMerger(BUS_CH);
 const limiter = ctx.createDynamicsCompressor();
 limiter.threshold.value = -1;
@@ -139,7 +160,6 @@ merger.connect(limiter);
 limiter.connect(master);
 master.connect(ctx.destination);
 
-// Ajusta la salida a los canales reales de la interfaz (solo pares completos)
 function configureChannels() {
   const max = ctx.destination.maxChannelCount;
   let ch = Math.min(BUS_CH, max - (max % 2));
@@ -167,7 +187,7 @@ const tracks = [1, 2].map((n, i) => {
   t.delay.connect(t.gain);
   t.gain.connect(t.up);
   t.up.connect(t.split);
-  t.gain.connect(t.analyser);   // medidor, no pasa audio
+  t.gain.connect(t.analyser);   // solo medidor
   routeTrack(t);
   return t;
 });
@@ -185,16 +205,6 @@ function setDelay(t, ms) {
   t.delay.delayTime.setTargetAtTime(v / 1000, ctx.currentTime, 0.01);
 }
 
-/* ================= ESTADO ================= */
-let playing = false, startedAt = 0, pausedAt = 0, duration = 0;
-let rafId = 0, stopTimer = 0, seekTimer = 0, seeking = false, outputChosen = false;
-let outputs = [];
-let wakeLock = null;
-
-const status = (msg, type = '') => { const s = $('status'); s.textContent = msg; s.className = type; };
-const pos = () => playing ? Math.min(duration, Math.max(0, ctx.currentTime - startedAt)) : pausedAt;
-const masterLevel = () => +$('master').value;
-
 function rampMaster(v, sec) {
   const now = ctx.currentTime;
   master.gain.cancelScheduledValues(now);
@@ -204,7 +214,7 @@ function rampMaster(v, sec) {
 
 function startSources(offset) {
   stopSources();
-  const when = ctx.currentTime + 0.05;   // ambas pistas arrancan en el mismo instante del reloj de contexto
+  const when = ctx.currentTime + 0.05;
   for (const t of tracks) {
     if (!t.buffer) continue;
     const s = ctx.createBufferSource();
@@ -333,7 +343,6 @@ function loop() {
   }
   rafId = requestAnimationFrame(loop);
 }
-const peakBuf = new Float32Array(1024);
 
 function setMeter(t, pk) {
   const el = $('meter' + t.n);
@@ -370,6 +379,10 @@ async function loadFile(t, file) {
 
 /* ================= SALIDA / DISPOSITIVOS ================= */
 async function refreshDevices(askPermission = false) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    throw new Error('Este contexto no permite acceder al audio. Abre la web por https:// en Chrome o Edge.');
+  }
+
   if (askPermission) {
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -378,6 +391,7 @@ async function refreshDevices(askPermission = false) {
       status('Sin permiso de audio: los nombres de dispositivos pueden no verse', 'warn');
     }
   }
+
   const devs = await navigator.mediaDevices.enumerateDevices();
   outputs = devs.filter(d => d.kind === 'audiooutput');
 
@@ -385,8 +399,7 @@ async function refreshDevices(askPermission = false) {
   const prev = sel.value;
   sel.innerHTML = '<option value="">— Elige interfaz de salida —</option>';
   outputs.forEach((d, i) => {
-    const o = new Option(d.label || `Dispositivo ${i + 1}`, d.deviceId);
-    sel.add(o);
+    sel.add(new Option(d.label || `Dispositivo ${i + 1}`, d.deviceId));
   });
   if (prev && outputs.some(d => d.deviceId === prev)) sel.value = prev;
 
@@ -395,6 +408,10 @@ async function refreshDevices(askPermission = false) {
     panic();
     outputChosen = false;
     status('⚠️ La interfaz se desconectó. Silencio. Vuelve a elegirla.', 'error');
+  }
+
+  if (!outputs.length) {
+    status('No se detectan salidas. Pulsa "Detectar / permitir".', 'warn');
   }
 }
 
@@ -466,7 +483,8 @@ async function testTone(t) {
 }
 
 /* ================= PRESETS ================= */
-let presets = JSON.parse(localStorage.getItem(KEY) || '{}');
+let presets = {};
+try { presets = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (_) { presets = {}; }
 
 function savePreset() {
   const name = $('presetName').value.trim();
@@ -490,17 +508,14 @@ async function loadPreset(name) {
   const p = presets[name];
   if (!p) return;
 
-  // 1. Interfaz (debe ir primero: reconstruye los pares)
   const dev = outputs.find(d => d.label === p.outputLabel);
   if (dev) {
     $('deviceSelect').value = dev.deviceId;
     await chooseOutput(dev.deviceId);
   } else if (p.outputLabel) {
-    status(`⚠️ Interfaz "${p.outputLabel}" no conectada`, 'error');
-    return;
+    return status(`⚠️ Interfaz "${p.outputLabel}" no conectada`, 'error');
   }
 
-  // 2. Pistas, volúmenes y retardos
   tracks.forEach((t, i) => {
     applyPair(t, p.pairs[i]);
     $('vol' + t.n).value = p.vols[i];
@@ -514,7 +529,6 @@ async function loadPreset(name) {
     }
   });
 
-  // 3. Master
   $('master').value = p.master;
   $('masterVal').textContent = Math.round(p.master * 100) + '%';
   if (playing) rampMaster(masterLevel(), 0.02);
@@ -541,7 +555,7 @@ function renderPresets() {
     const row = document.createElement('div');
     row.className = 'preset';
     const info = document.createElement('div');
-    info.innerHTML = `<strong></strong><br><small></small>`;
+    info.innerHTML = '<strong></strong><br><small></small>';
     info.querySelector('strong').textContent = name;
     info.querySelector('small').textContent = presets[name].outputLabel || 'sin interfaz';
     const load = document.createElement('button');
@@ -564,9 +578,11 @@ ctx.onstatechange = () => {
   }
 };
 
-navigator.mediaDevices.addEventListener('devicechange', () => {
-  refreshDevices().catch(() => {});
-});
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    refreshDevices().catch(err => status(err.message, 'error'));
+  });
+}
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && playing) keepAwake(true);
@@ -581,7 +597,9 @@ document.addEventListener('keydown', e => {
 $('file1').addEventListener('change', e => loadFile(tracks[0], e.target.files[0]));
 $('file2').addEventListener('change', e => loadFile(tracks[1], e.target.files[0]));
 
-$('refreshBtn').addEventListener('click', () => refreshDevices(true).catch(err => status(err.message, 'error')));
+$('refreshBtn').addEventListener('click', () =>
+  refreshDevices(true).catch(err => status(err.message, 'error')));
+
 $('deviceSelect').addEventListener('change', e => {
   if (!e.target.value) { outputChosen = false; return; }
   chooseOutput(e.target.value);
@@ -619,12 +637,15 @@ $('seek').addEventListener('change', e => {
 
 $('savePreset').addEventListener('click', savePreset);
 
-// Inicio
+/* ================= INICIO ================= */
 renderPresets();
 updateTime(0);
 setButtons();
-refreshDevices().then(() => status('Elige la interfaz de salida para empezar', ''))
-  .catch(() => status('Pulsa "Detectar / permitir" para ver las interfaces', 'warn'));
+status('Pulsa "Detectar / permitir" para ver las interfaces', 'warn');
+
+refreshDevices()
+  .then(() => { if (outputs.length) status('Elige la interfaz de salida para empezar', ''); })
+  .catch(err => status(err.message, 'error'));
 </script>
 </body>
 </html>
