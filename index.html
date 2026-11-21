@@ -1,1056 +1,630 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Pista Audio Sincronizado</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 30px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-        }
-
-        h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 2.5em;
-            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 20px rgba(255,255,255,0.3);
-        }
-
-        .upload-section {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-            margin-bottom: 40px;
-            padding: 30px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 15px;
-            border: 2px dashed rgba(255,255,255,0.3);
-        }
-
-        .audio-track {
-            text-align: center;
-            padding: 20px;
-        }
-
-        .audio-track h3 {
-            margin-bottom: 20px;
-            color: #4ecdc4;
-        }
-
-        .file-input-wrapper {
-            position: relative;
-            overflow: hidden;
-            display: inline-block;
-            margin-bottom: 15px;
-        }
-
-        .file-input-wrapper input[type=file] {
-            position: absolute;
-            left: -9999px;
-        }
-
-        .file-btn {
-            background: linear-gradient(45deg, #4ecdc4, #44a08d);
-            border: none;
-            padding: 15px 30px;
-            border-radius: 50px;
-            color: white;
-            font-size: 16px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 10px 20px rgba(78,205,196,0.3);
-        }
-
-        .file-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 15px 30px rgba(78,205,196,0.4);
-        }
-
-        .file-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .audio-info {
-            margin-top: 10px;
-            padding: 10px;
-            background: rgba(0,0,0,0.2);
-            border-radius: 10px;
-            font-size: 14px;
-        }
-
-        .device-selection {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-            margin: 40px 0;
-            padding: 30px;
-            background: rgba(0,0,0,0.2);
-            border-radius: 15px;
-        }
-
-        .device-group {
-            background: rgba(255,255,255,0.05);
-            padding: 20px;
-            border-radius: 10px;
-        }
-
-        .device-group h4 {
-            margin-bottom: 15px;
-            color: #ff6b6b;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .refresh-btn {
-            background: rgba(78,205,196,0.3);
-            border: none;
-            padding: 5px 15px;
-            border-radius: 15px;
-            color: white;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .refresh-btn:hover {
-            background: #4ecdc4;
-        }
-
-        .device-list {
-            max-height: 250px;
-            overflow-y: auto;
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 8px;
-            padding: 10px;
-        }
-
-        .device-option {
-            padding: 12px;
-            margin: 8px 0;
-            background: rgba(255,255,255,0.1);
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            border: 2px solid transparent;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .device-option:hover {
-            background: rgba(78,205,196,0.3);
-            transform: translateX(5px);
-        }
-
-        .device-option.selected {
-            background: #4ecdc4;
-            color: #1e3c72;
-            border-color: #1e3c72;
-            font-weight: bold;
-        }
-
-        .device-icon {
-            font-size: 20px;
-        }
-
-        .device-info {
-            flex: 1;
-            text-align: left;
-        }
-
-        .device-id {
-            font-size: 10px;
-            opacity: 0.6;
-            font-family: monospace;
-        }
-
-        .controls-section {
-            display: grid;
-            grid-template-columns: 1fr 300px;
-            gap: 30px;
-            margin: 40px 0;
-        }
-
-        .player-controls {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            background: rgba(255,255,255,0.05);
-            padding: 30px;
-            border-radius: 15px;
-        }
-
-        .main-controls {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-
-        .control-btn {
-            width: 60px;
-            height: 60px;
-            border: none;
-            border-radius: 50%;
-            font-size: 20px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-        }
-
-        .play-btn { background: #4ecdc4; }
-        .pause-btn { background: #ff6b6b; }
-        .stop-btn { background: #95a5a6; }
-        .control-btn:hover { 
-            transform: scale(1.1); 
-            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
-        }
-        .control-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .time-display {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 18px;
-            font-weight: bold;
-        }
-
-        .seek-container {
-            width: 100%;
-            margin: 10px 0;
-        }
-
-        .seek-slider {
-            width: 100%;
-            height: 8px;
-            border-radius: 4px;
-            background: rgba(255,255,255,0.3);
-            outline: none;
-            -webkit-appearance: none;
-        }
-
-        .seek-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: #4ecdc4;
-            cursor: pointer;
-            box-shadow: 0 2px 10px rgba(78,205,196,0.5);
-        }
-
-        .seek-slider::-moz-range-thumb {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: #4ecdc4;
-            cursor: pointer;
-            border: none;
-            box-shadow: 0 2px 10px rgba(78,205,196,0.5);
-        }
-
-        .track-controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        .track-control {
-            background: rgba(0,0,0,0.2);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-        }
-
-        .track-control h5 {
-            margin-bottom: 15px;
-            color: #4ecdc4;
-        }
-
-        .volume-slider {
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            background: rgba(255,255,255,0.3);
-            outline: none;
-            -webkit-appearance: none;
-        }
-
-        .volume-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: #ff6b6b;
-            cursor: pointer;
-        }
-
-        .volume-slider::-moz-range-thumb {
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background: #ff6b6b;
-            cursor: pointer;
-            border: none;
-        }
-
-        .presets-section {
-            background: rgba(255,255,255,0.05);
-            padding: 30px;
-            border-radius: 15px;
-        }
-
-        .presets-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .preset-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-bottom: 20px;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
-        .preset-btn {
-            padding: 12px 20px;
-            background: rgba(78,205,196,0.3);
-            border: 2px solid transparent;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: left;
-            position: relative;
-        }
-
-        .preset-btn:hover {
-            background: rgba(78,205,196,0.5);
-            transform: translateX(5px);
-        }
-
-        .preset-btn.active {
-            background: #4ecdc4;
-            border-color: #1e3c72;
-            color: #1e3c72;
-        }
-
-        .preset-delete {
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: rgba(231,76,60,0.5);
-            border: none;
-            padding: 5px 10px;
-            border-radius: 5px;
-            cursor: pointer;
-            color: white;
-        }
-
-        .preset-delete:hover {
-            background: #e74c3c;
-        }
-
-        .preset-input {
-            width: 100%;
-            padding: 12px;
-            margin-bottom: 15px;
-            border-radius: 8px;
-            border: 2px solid rgba(255,255,255,0.3);
-            background: rgba(0,0,0,0.3);
-            color: white;
-            font-size: 14px;
-        }
-
-        .preset-input:focus {
-            outline: none;
-            border-color: #4ecdc4;
-        }
-
-        .status {
-            text-align: center;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-            font-weight: bold;
-        }
-
-        .status.ready { background: rgba(78,205,196,0.3); }
-        .status.loading { background: rgba(255,193,7,0.3); }
-        .status.error { background: rgba(231,76,60,0.3); }
-        .status.success { background: rgba(46,213,115,0.3); }
-
-        .permission-warning {
-            background: rgba(255,193,7,0.3);
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-            border-left: 4px solid #ffc107;
-        }
-
-        @media (max-width: 768px) {
-            .upload-section, .device-selection, .controls-section, .track-controls {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .device-list::-webkit-scrollbar, .preset-list::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .device-list::-webkit-scrollbar-track, .preset-list::-webkit-scrollbar-track {
-            background: rgba(0,0,0,0.2);
-            border-radius: 4px;
-        }
-
-        .device-list::-webkit-scrollbar-thumb, .preset-list::-webkit-scrollbar-thumb {
-            background: rgba(78,205,196,0.5);
-            border-radius: 4px;
-        }
-
-        .device-list::-webkit-scrollbar-thumb:hover, .preset-list::-webkit-scrollbar-thumb:hover {
-            background: #4ecdc4;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Pista In-Ear</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, Segoe UI, Tahoma, sans-serif; background: #111827; color: #e5e7eb; padding: 16px; min-height: 100vh; }
+  h1 { font-size: 1.6em; margin-bottom: 4px; }
+  h3 { font-size: 1.05em; margin-bottom: 8px; color: #5eead4; }
+  section { background: #1f2937; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  label { display: block; font-size: 0.9em; margin: 8px 0 4px; }
+  select, input[type=text], input[type=number] { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #374151; background: #111827; color: #e5e7eb; }
+  input[type=range] { width: 100%; }
+  button { padding: 10px 14px; border: none; border-radius: 8px; background: #0d9488; color: #fff; font-size: 0.95em; cursor: pointer; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary { background: #374151; }
+  button.panic { background: #dc2626; font-weight: bold; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .tracks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .info { font-size: 0.85em; color: #9ca3af; margin: 6px 0; min-height: 1.2em; word-break: break-all; }
+  .meter { height: 10px; background: #374151; border-radius: 5px; overflow: hidden; margin-top: 10px; }
+  .bar { height: 100%; width: 0; background: #22c55e; transition: width 0.05s linear; }
+  .bar.clip { background: #ef4444; }
+  #status { padding: 10px; border-radius: 8px; margin: 10px 0; font-weight: bold; background: #374151; text-align: center; }
+  #status.ok { background: rgba(34,197,94,0.25); }
+  #status.error { background: rgba(239,68,68,0.3); }
+  #status.warn { background: rgba(245,158,11,0.3); }
+  .time { font-size: 1.3em; font-variant-numeric: tabular-nums; min-width: 150px; }
+  .preset { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px; background: #111827; border-radius: 8px; margin-top: 6px; }
+  #chInfo { font-size: 0.85em; color: #9ca3af; }
+  @media (max-width: 700px) { .tracks { grid-template-columns: 1fr; } }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>🎵 Multi-Pista Audio Sincronizado</h1>
-        
-        <div id="status" class="status loading">Inicializando...</div>
 
-        <div class="permission-warning" id="permissionWarning" style="display: none;">
-            ⚠️ Para listar todos los dispositivos de audio, necesitamos permisos. Haz clic en "Permitir" cuando el navegador te lo solicite.
-        </div>
+<h1>🎧 Multi-Pista In-Ear</h1>
+<div id="status">Inicializando…</div>
 
-        <!-- Sección de carga de archivos -->
-        <div class="upload-section" id="uploadSection">
-            <div class="audio-track">
-                <h3>🎤 Pista 1</h3>
-                <div class="file-input-wrapper">
-                    <input type="file" id="audio1Input" accept="audio/*">
-                    <label for="audio1Input" class="file-btn">Seleccionar Audio 1</label>
-                </div>
-                <div id="audio1Info" class="audio-info">No hay archivo cargado</div>
-            </div>
-            <div class="audio-track">
-                <h3>🎧 Pista 2</h3>
-                <div class="file-input-wrapper">
-                    <input type="file" id="audio2Input" accept="audio/*">
-                    <label for="audio2Input" class="file-btn">Seleccionar Audio 2</label>
-                </div>
-                <div id="audio2Info" class="audio-info">No hay archivo cargado</div>
-            </div>
-        </div>
+<section>
+  <h3>Interfaz de salida</h3>
+  <div class="row">
+    <select id="deviceSelect" style="flex:1; min-width:200px"></select>
+    <button id="refreshBtn" class="secondary">🔄 Detectar / permitir</button>
+  </div>
+  <div id="chInfo"></div>
+</section>
 
-        <!-- Selección de dispositivos -->
-        <div class="device-selection" id="deviceSelection">
-            <div class="device-group">
-                <h4>
-                    📢 Salida Pista 1
-                    <button class="refresh-btn" id="refreshDevices1">🔄 Actualizar</button>
-                </h4>
-                <div id="deviceList1" class="device-list"></div>
-            </div>
-            <div class="device-group">
-                <h4>
-                    🔊 Salida Pista 2
-                    <button class="refresh-btn" id="refreshDevices2">🔄 Actualizar</button>
-                </h4>
-                <div id="deviceList2" class="device-list"></div>
-            </div>
-        </div>
+<section class="tracks">
+  <div>
+    <h3>Pista 1</h3>
+    <input type="file" id="file1" accept="audio/*">
+    <div class="info" id="info1">Sin archivo</div>
+    <label>Salida (par de canales)</label>
+    <select id="pair1"></select>
+    <label>Volumen <span id="volVal1">80%</span></label>
+    <input type="range" id="vol1" min="0" max="1" step="0.01" value="0.8">
+    <label>Retardo de compensación (ms)</label>
+    <input type="number" id="delay1" min="0" max="1000" step="1" value="0">
+    <div class="row" style="margin-top:10px"><button id="test1" class="secondary">🔈 Probar salida</button></div>
+    <div class="meter"><div id="meter1" class="bar"></div></div>
+  </div>
+  <div>
+    <h3>Pista 2</h3>
+    <input type="file" id="file2" accept="audio/*">
+    <div class="info" id="info2">Sin archivo</div>
+    <label>Salida (par de canales)</label>
+    <select id="pair2"></select>
+    <label>Volumen <span id="volVal2">80%</span></label>
+    <input type="range" id="vol2" min="0" max="1" step="0.01" value="0.8">
+    <label>Retardo de compensación (ms)</label>
+    <input type="number" id="delay2" min="0" max="1000" step="1" value="0">
+    <div class="row" style="margin-top:10px"><button id="test2" class="secondary">🔈 Probar salida</button></div>
+    <div class="meter"><div id="meter2" class="bar"></div></div>
+  </div>
+</section>
 
-        <!-- Controles principales -->
-        <div class="controls-section">
-            <div class="player-controls">
-                <div class="main-controls">
-                    <button id="playBtn" class="control-btn play-btn" disabled>▶️</button>
-                    <button id="pauseBtn" class="control-btn pause-btn" style="display:none;">⏸️</button>
-                    <button id="stopBtn" class="control-btn stop-btn" disabled>⏹️</button>
-                    <div class="time-display">
-                        <span id="currentTime">00:00</span>
-                        <span>/</span>
-                        <span id="duration">00:00</span>
-                    </div>
-                </div>
-                
-                <div class="seek-container">
-                    <input type="range" id="seekSlider" min="0" max="100" value="0" step="0.1" class="seek-slider" disabled>
-                </div>
+<section>
+  <div class="row">
+    <button id="playBtn">▶️ Play</button>
+    <button id="stopBtn" class="secondary">⏹️ Stop</button>
+    <button id="panicBtn" class="panic">🛑 PÁNICO</button>
+    <span class="time" id="time">00:00 / 00:00</span>
+  </div>
+  <label>Posición</label>
+  <input type="range" id="seek" min="0" max="1000" step="1" value="0">
+  <label>Master <span id="masterVal">80%</span></label>
+  <input type="range" id="master" min="0" max="1" step="0.01" value="0.8">
+  <p class="info">Espacio = play/pausa · Esc = pánico (silencio inmediato)</p>
+</section>
 
-                <div class="track-controls">
-                    <div class="track-control">
-                        <h5>🔊 Volumen Pista 1</h5>
-                        <input type="range" id="volume1" min="0" max="1" step="0.01" value="1" class="volume-slider">
-                        <div id="volumeValue1">100%</div>
-                    </div>
-                    <div class="track-control">
-                        <h5>🔊 Volumen Pista 2</h5>
-                        <input type="range" id="volume2" min="0" max="1" step="0.01" value="1" class="volume-slider">
-                        <div id="volumeValue2">100%</div>
-                    </div>
-                </div>
-            </div>
+<section>
+  <h3>💾 Presets</h3>
+  <div class="row">
+    <input type="text" id="presetName" placeholder="Nombre del preset" style="flex:1">
+    <button id="savePreset">Guardar</button>
+  </div>
+  <p class="info">Los presets guardan interfaz, salidas, volúmenes y retardos. Los archivos de audio hay que volver a cargarlos cada vez.</p>
+  <div id="presetList"></div>
+</section>
 
-            <!-- Presets -->
-            <div class="presets-section">
-                <div class="presets-header">
-                    <h3>💾 Presets</h3>
-                </div>
-                <input type="text" id="presetNameInput" placeholder="Nombre del preset..." class="preset-input">
-                <button id="savePresetBtn" class="file-btn" style="width: 100%; padding: 12px;">💾 Guardar Preset</button>
-                <div id="presetList" class="preset-list"></div>
-            </div>
-        </div>
-    </div>
+<script>
+'use strict';
 
-    <!-- Audio elements ocultos -->
-    <audio id="audioElement1" preload="auto"></audio>
-    <audio id="audioElement2" preload="auto"></audio>
+/* ================= CONFIGURACIÓN ================= */
+const CAP = 0.8;          // tope de seguridad por pista (volumen máximo real = 80%)
+const MAX_DELAY = 1.0;    // retardo máximo en segundos
+const BUS_CH = 8;         // canales del bus de salida (4 pares)
+const KEY = 'inearPresets';
 
-    <script>
-        class MultiTrackAudioPlayer {
-            constructor() {
-                this.audio1 = document.getElementById('audioElement1');
-                this.audio2 = document.getElementById('audioElement2');
-                this.isPlaying = false;
-                this.devices = [];
-                this.selectedDevice1 = null;
-                this.selectedDevice2 = null;
-                this.presets = JSON.parse(localStorage.getItem('audioPresets')) || {};
-                this.isSeeking = false;
-                this.audioFiles = {1: null, 2: null};
-                this.audioLoaded = {1: false, 2: false};
+const $ = id => document.getElementById(id);
+const fmt = s => {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60), r = Math.floor(s % 60);
+  return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+};
 
-                this.initialize();
-            }
+/* ================= MOTOR DE AUDIO ================= */
+const ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
 
-            async initialize() {
-                try {
-                    await this.requestPermissions();
-                    await this.scanDevices();
-                    this.setupEventListeners();
-                    this.loadPresets();
-                    this.updateStatus('Listo para cargar audios', 'ready');
-                } catch (error) {
-                    console.error('Error inicializando:', error);
-                    this.updateStatus('Error: ' + error.message, 'error');
-                }
-            }
+// Bus: 8 entradas mono -> 8 canales -> limitador -> master -> salida
+const merger = ctx.createChannelMerger(BUS_CH);
+const limiter = ctx.createDynamicsCompressor();
+limiter.threshold.value = -1;
+limiter.knee.value = 0;
+limiter.ratio.value = 20;
+limiter.attack.value = 0.001;
+limiter.release.value = 0.1;
+const master = ctx.createGain();
+master.gain.value = 0;   // se sube con fade-in al dar Play
 
-            async requestPermissions() {
-                document.getElementById('permissionWarning').style.display = 'block';
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    stream.getTracks().forEach(track => track.stop());
-                    document.getElementById('permissionWarning').style.display = 'none';
-                    return true;
-                } catch (error) {
-                    console.warn('Permiso de audio denegado:', error);
-                    document.getElementById('permissionWarning').innerHTML = 
-                        '⚠️ Permiso denegado. Los dispositivos pueden no aparecer correctamente.';
-                    return false;
-                }
-            }
+for (const n of [limiter, master]) {
+  n.channelCount = BUS_CH;
+  n.channelCountMode = 'explicit';
+  n.channelInterpretation = 'discrete';
+}
+merger.connect(limiter);
+limiter.connect(master);
+master.connect(ctx.destination);
 
-            async scanDevices() {
-                this.updateStatus('Escaneando dispositivos de audio...', 'loading');
-                
-                try {
-                    const devices = await navigator.mediaDevices.enumerateDevices();
-                    this.devices = devices.filter(device => device.kind === 'audiooutput');
-                    
-                    console.log('Dispositivos encontrados:', this.devices);
-                    
-                    if (this.devices.length === 0) {
-                        throw new Error('No se encontraron dispositivos de salida');
-                    }
-                    
-                    this.populateDeviceList('deviceList1', this.devices);
-                    this.populateDeviceList('deviceList2', this.devices);
-                    
-                    this.updateStatus(`${this.devices.length} dispositivos encontrados`, 'success');
-                } catch (error) {
-                    console.error('Error escaneando dispositivos:', error);
-                    this.updateStatus('Error escaneando dispositivos: ' + error.message, 'error');
-                }
-            }
+// Ajusta la salida a los canales reales de la interfaz (solo pares completos)
+function configureChannels() {
+  const max = ctx.destination.maxChannelCount;
+  let ch = Math.min(BUS_CH, max - (max % 2));
+  if (ch < 2) ch = 2;
+  ctx.destination.channelCount = ch;
+  ctx.destination.channelInterpretation = 'discrete';
+  return ch;
+}
 
-            populateDeviceList(containerId, devices) {
-                const container = document.getElementById(containerId);
-                container.innerHTML = '';
+// Pistas: fuente -> retardo -> volumen -> upmix estéreo -> splitter -> pares de canales
+const tracks = [1, 2].map((n, i) => {
+  const t = {
+    n, buffer: null, name: '', src: null, pair: i,
+    delay: ctx.createDelay(MAX_DELAY),
+    gain: ctx.createGain(),
+    up: ctx.createGain(),
+    split: ctx.createChannelSplitter(2),
+    analyser: ctx.createAnalyser(),
+  };
+  t.gain.gain.value = 0.8 * CAP;
+  t.up.channelCount = 2;
+  t.up.channelCountMode = 'explicit';
+  t.up.channelInterpretation = 'speakers';
+  t.analyser.fftSize = 1024;
+  t.delay.connect(t.gain);
+  t.gain.connect(t.up);
+  t.up.connect(t.split);
+  t.gain.connect(t.analyser);   // medidor, no pasa audio
+  routeTrack(t);
+  return t;
+});
 
-                if (devices.length === 0) {
-                    container.innerHTML = '<div class="device-option">❌ No hay dispositivos disponibles</div>';
-                    return;
-                }
+function routeTrack(t) {
+  t.split.disconnect();
+  const L = t.pair * 2;
+  t.split.connect(merger, 0, L);
+  t.split.connect(merger, 1, L + 1);
+}
 
-                devices.forEach((device, index) => {
-                    const div = document.createElement('div');
-                    div.className = 'device-option';
-                    div.dataset.deviceId = device.deviceId;
-                    
-                    const icon = this.getDeviceIcon(device.label);
-                    const label = device.label || `Dispositivo ${index + 1}`;
-                    
-                    div.innerHTML = `
-                        <span class="device-icon">${icon}</span>
-                        <div class="device-info">
-                            <div>${label}</div>
-                            <div class="device-id">${device.deviceId.substring(0, 30)}...</div>
-                        </div>
-                    `;
-                    
-                    container.appendChild(div);
-                });
-            }
+function setVol(t, v) { t.gain.gain.setTargetAtTime(v * CAP, ctx.currentTime, 0.02); }
+function setDelay(t, ms) {
+  const v = Math.max(0, Math.min(MAX_DELAY * 1000, +ms || 0));
+  t.delay.delayTime.setTargetAtTime(v / 1000, ctx.currentTime, 0.01);
+}
 
-            getDeviceIcon(label) {
-                const l = label.toLowerCase();
-                if (l.includes('headphone') || l.includes('auricular')) return '🎧';
-                if (l.includes('speaker') || l.includes('altavoz')) return '🔊';
-                if (l.includes('hdmi')) return '📺';
-                if (l.includes('bluetooth')) return '📡';
-                if (l.includes('usb')) return '🔌';
-                if (l.includes('default') || l.includes('predeterminado')) return '⭐';
-                return '🔈';
-            }
+/* ================= ESTADO ================= */
+let playing = false, startedAt = 0, pausedAt = 0, duration = 0;
+let rafId = 0, stopTimer = 0, seekTimer = 0, seeking = false, outputChosen = false;
+let outputs = [];
+let wakeLock = null;
 
-            setupEventListeners() {
-                // File inputs
-                document.getElementById('audio1Input').addEventListener('change', (e) => this.loadAudioFile(e, 1));
-                document.getElementById('audio2Input').addEventListener('change', (e) => this.loadAudioFile(e, 2));
+const status = (msg, type = '') => { const s = $('status'); s.textContent = msg; s.className = type; };
+const pos = () => playing ? Math.min(duration, Math.max(0, ctx.currentTime - startedAt)) : pausedAt;
+const masterLevel = () => +$('master').value;
 
-                // Device selection
-                document.getElementById('deviceList1').addEventListener('click', (e) => {
-                    const option = e.target.closest('.device-option');
-                    if (option && option.dataset.deviceId) {
-                        this.selectDevice(option, 1);
-                    }
-                });
+function rampMaster(v, sec) {
+  const now = ctx.currentTime;
+  master.gain.cancelScheduledValues(now);
+  master.gain.setValueAtTime(master.gain.value, now);
+  master.gain.linearRampToValueAtTime(v, now + sec);
+}
 
-                document.getElementById('deviceList2').addEventListener('click', (e) => {
-                    const option = e.target.closest('.device-option');
-                    if (option && option.dataset.deviceId) {
-                        this.selectDevice(option, 2);
-                    }
-                });
+function startSources(offset) {
+  stopSources();
+  const when = ctx.currentTime + 0.05;   // ambas pistas arrancan en el mismo instante del reloj de contexto
+  for (const t of tracks) {
+    if (!t.buffer) continue;
+    const s = ctx.createBufferSource();
+    s.buffer = t.buffer;
+    s.connect(t.delay);
+    s.start(when, Math.min(offset, t.buffer.duration));
+    t.src = s;
+  }
+  startedAt = when - offset;
+}
 
-                // Refresh buttons
-                document.getElementById('refreshDevices1').addEventListener('click', () => this.scanDevices());
-                document.getElementById('refreshDevices2').addEventListener('click', () => this.scanDevices());
+function stopSources() {
+  clearTimeout(stopTimer);
+  for (const t of tracks) {
+    if (t.src) {
+      try { t.src.stop(); } catch (_) {}
+      t.src.disconnect();
+      t.src = null;
+    }
+  }
+}
 
-                // Controls
-                document.getElementById('playBtn').addEventListener('click', () => this.play());
-                document.getElementById('pauseBtn').addEventListener('click', () => this.pause());
-                document.getElementById('stopBtn').addEventListener('click', () => this.stop());
-                
-                // Seek slider
-                const seekSlider = document.getElementById('seekSlider');
-                seekSlider.addEventListener('mousedown', () => this.isSeeking = true);
-                seekSlider.addEventListener('touchstart', () => this.isSeeking = true);
-                seekSlider.addEventListener('mouseup', () => { 
-                    this.isSeeking = false;
-                    this.seek(seekSlider.value);
-                });
-                seekSlider.addEventListener('touchend', () => { 
-                    this.isSeeking = false;
-                    this.seek(seekSlider.value);
-                });
-                seekSlider.addEventListener('input', (e) => {
-                    if (!this.isSeeking) return;
-                    const time = (e.target.value / 100) * this.audio1.duration;
-                    document.getElementById('currentTime').textContent = this.formatTime(time);
-                });
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+    } else if (!on && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch (_) {}
+}
 
-                // Volume controls
-                document.getElementById('volume1').addEventListener('input', (e) => {
-                    this.setVolume(1, e.target.value);
-                    document.getElementById('volumeValue1').textContent = Math.round(e.target.value * 100) + '%';
-                });
-                document.getElementById('volume2').addEventListener('input', (e) => {
-                    this.setVolume(2, e.target.value);
-                    document.getElementById('volumeValue2').textContent = Math.round(e.target.value * 100) + '%';
-                });
+function setButtons() {
+  $('playBtn').textContent = playing ? '⏸️ Pausa' : '▶️ Play';
+}
 
-                // Audio events para sincronización
-                this.audio1.addEventListener('loadedmetadata', () => {
-                    this.audioLoaded[1] = true;
-                    this.updateDuration();
-                });
-                this.audio2.addEventListener('loadedmetadata', () => {
-                    this.audioLoaded[2] = true;
-                    this.updateDuration();
-                });
-                this.audio1.addEventListener('timeupdate', () => this.updateProgress());
-                this.audio1.addEventListener('ended', () => this.handleEnded());
-                this.audio2.addEventListener('ended', () => this.handleEnded());
-                
-                // Presets
-                document.getElementById('savePresetBtn').addEventListener('click', () => this.savePreset());
-            }
+function updateTime(p = pos()) {
+  $('time').textContent = `${fmt(p)} / ${fmt(duration)}`;
+  if (!seeking) $('seek').value = duration ? (p / duration) * 1000 : 0;
+}
 
-            async loadAudioFile(event, track) {
-                const file = event.target.files[0];
-                if (!file) return;
+/* ================= TRANSPORTE ================= */
+async function play() {
+  if (playing) return;
+  if (!outputChosen) return status('Elige primero la interfaz de salida', 'error');
+  if (!tracks.some(t => t.buffer)) return status('Carga al menos una pista', 'error');
 
-                const infoDiv = document.getElementById(`audio${track}Info`);
-                infoDiv.textContent = `Cargando ${file.name}...`;
+  await ctx.resume();
+  if (pausedAt >= duration) pausedAt = 0;
+  startSources(pausedAt);
+  playing = true;
+  rampMaster(masterLevel(), 0.05);
+  keepAwake(true);
+  setButtons();
+  status(`▶️ Reproduciendo · latencia de salida ≈ ${Math.round((ctx.outputLatency || 0) * 1000)} ms`, 'ok');
+  rafId = requestAnimationFrame(loop);
+}
 
-                try {
-                    const url = URL.createObjectURL(file);
-                    const audio = track === 1 ? this.audio1 : this.audio2;
-                    
-                    // Resetear estado
-                    this.audioLoaded[track] = false;
-                    audio.src = url;
-                    
-                    // Esperar a que el audio esté listo
-                    await new Promise((resolve, reject) => {
-                        audio.onloadedmetadata = resolve;
-                        audio.onerror = reject;
-                        audio.load();
-                    });
-                    
-                    this.audioFiles[track] = {
-                        name: file.name,
-                        size: file.size,
-                        url: url
-                    };
-                    
-                    infoDiv.innerHTML = `✅ ${file.name}<br><small>(${(file.size/1024/1024).toFixed(1)}MB - ${this.formatTime(audio.duration)})</small>`;
-                    
-                    this.checkReadyToPlay();
-                } catch (error) {
-                    console.error('Error cargando audio:', error);
-                    infoDiv.textContent = '❌ Error cargando archivo';
-                    this.updateStatus('Error cargando audio: ' + error.message, 'error');
-                }
-            }
+function pause() {
+  if (!playing) return;
+  pausedAt = pos();
+  playing = false;
+  cancelAnimationFrame(rafId);
+  rampMaster(0, 0.03);
+  stopTimer = setTimeout(() => { if (!playing) stopSources(); }, 60);
+  resetMeters();
+  keepAwake(false);
+  setButtons();
+  updateTime();
+  status('⏸️ Pausado', '');
+}
 
-            async selectDevice(element, track) {
-                const container = document.getElementById(`deviceList${track}`);
-                container.querySelectorAll('.device-option').forEach(el => {
-                    el.classList.remove('selected');
-                });
-                
-                element.classList.add('selected');
-                const deviceId = element.dataset.deviceId;
-                
-                try {
-                    const audio = track === 1 ? this.audio1 : this.audio2;
-                    
-                    if (typeof audio.setSinkId !== 'undefined') {
-                        // Esperar a que setSinkId complete ANTES de continuar
-                        await audio.setSinkId(deviceId);
-                        
-                        if (track === 1) {
-                            this.selectedDevice1 = deviceId;
-                        } else {
-                            this.selectedDevice2 = deviceId;
-                        }
-                        
-                        const deviceLabel = element.querySelector('.device-info div').textContent;
-                        console.log(`Pista ${track} configurada en: ${deviceLabel}`);
-                        this.updateStatus(`Pista ${track} → ${deviceLabel}`, 'success');
-                        
-                        this.checkReadyToPlay();
-                    } else {
-                        throw new Error('setSinkId no soportado - usa Chrome/Edge');
-                    }
-                } catch (error) {
-                    console.error('Error configurando dispositivo:', error);
-                    this.updateStatus('Error: ' + error.message, 'error');
-                }
-            }
+function stop() {
+  pause();
+  pausedAt = 0;
+  updateTime(0);
+  status('⏹️ Detenido', '');
+}
 
-            checkReadyToPlay() {
-                const ready = this.audioLoaded[1] && this.audioLoaded[2] && 
-                             this.selectedDevice1 && this.selectedDevice2;
-                
-                document.getElementById('playBtn').disabled = !ready;
-                document.getElementById('stopBtn').disabled = !ready;
-                document.getElementById('seekSlider').disabled = !ready;
-                
-                if (ready) {
-                    this.updateStatus('✅ Todo listo - Presiona Play', 'success');
-                }
-            }
+function panic() {
+  if (playing) pausedAt = pos();
+  playing = false;
+  cancelAnimationFrame(rafId);
+  rampMaster(0, 0.01);
+  stopSources();
+  resetMeters();
+  keepAwake(false);
+  setButtons();
+  updateTime();
+  status('🛑 PÁNICO: silencio total. Pulsa Play para reanudar', 'error');
+}
 
-            async play() {
-                if (!this.audioLoaded[1] || !this.audioLoaded[2]) {
-                    this.updateStatus('Espera a que ambos audios se carguen', 'error');
-                    return;
-                }
+function seekTo(sec) {
+  sec = Math.max(0, Math.min(duration, sec));
+  pausedAt = sec;
+  if (!playing) return updateTime(sec);
+  rampMaster(0, 0.02);
+  clearTimeout(seekTimer);
+  seekTimer = setTimeout(() => {
+    if (!playing) return;
+    startSources(sec);
+    rampMaster(masterLevel(), 0.03);
+  }, 30);
+  updateTime(sec);
+}
 
-                if (!this.selectedDevice1 || !this.selectedDevice2) {
-                    this.updateStatus('Selecciona dispositivos de salida primero', 'error');
-                    return;
-                }
+function loop() {
+  if (!playing) return;
+  const p = pos();
+  updateTime(p);
+  for (const t of tracks) {
+    t.analyser.getFloatTimeDomainData(peakBuf);
+    let pk = 0;
+    for (let i = 0; i < peakBuf.length; i++) {
+      const a = Math.abs(peakBuf[i]);
+      if (a > pk) pk = a;
+    }
+    setMeter(t, pk);
+  }
+  if (p >= duration - 0.02) {
+    pause();
+    pausedAt = 0;
+    updateTime(0);
+    return;
+  }
+  rafId = requestAnimationFrame(loop);
+}
+const peakBuf = new Float32Array(1024);
 
-                try {
-                    this.updateStatus('▶️ Iniciando reproducción...', 'loading');
-                    
-                    // Sincronización ESTRICTA usando Promise.all
-                    await Promise.all([
-                        this.audio1.play(),
-                        this.audio2.play()
-                    ]);
-                    
-                    this.isPlaying = true;
-                    document.getElementById('playBtn').style.display = 'none';
-                    document.getElementById('pauseBtn').style.display = 'flex';
-                    
-                    this.updateStatus('▶️ Reproduciendo simultáneamente', 'success');
-                    console.log('Reproducción iniciada en ambas pistas');
-                    
-                } catch (error) {
-                    console.error('Error reproduciendo:', error);
-                    this.updateStatus('Error: ' + error.message, 'error');
-                    
-                    // Intentar detener ambos si uno falla
-                    try {
-                        this.audio1.pause();
-                        this.audio2.pause();
-                    } catch (e) {}
-                    
-                    this.isPlaying = false;
-                }
-            }
+function setMeter(t, pk) {
+  const el = $('meter' + t.n);
+  el.style.width = Math.min(100, pk * 100) + '%';
+  el.classList.toggle('clip', pk > 0.98);
+}
+function resetMeters() { tracks.forEach(t => setMeter(t, 0)); }
 
-            pause() {
-                this.isPlaying = false;
-                
-                // Pausar ambos sincrónicamente
-                this.audio1.pause();
-                this.audio2.pause();
-                
-                document.getElementById('playBtn').style.display = 'flex';
-                document.getElementById('pauseBtn').style.display = 'none';
-                
-                this.updateStatus('⏸️ Pausado', 'ready');
-            }
+/* ================= ARCHIVOS ================= */
+async function loadFile(t, file) {
+  if (!file) return;
+  if (playing) pause();
+  status(`Cargando ${file.name}…`, 'warn');
+  try {
+    t.buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+    t.name = file.name;
+    duration = Math.max(...tracks.map(x => x.buffer ? x.buffer.duration : 0));
+    pausedAt = Math.min(pausedAt, duration);
+    const other = tracks.find(x => x !== t && x.buffer);
+    let warn = '';
+    if (other && Math.abs(other.buffer.duration - t.buffer.duration) > 0.5) {
+      warn = ' ⚠️ Las duraciones difieren más de 0,5 s';
+    }
+    $('info' + t.n).textContent = `✅ ${file.name} · ${fmt(t.buffer.duration)}`;
+    updateTime();
+    status('Pista cargada' + warn, warn ? 'warn' : 'ok');
+  } catch (err) {
+    t.buffer = null;
+    t.name = '';
+    $('info' + t.n).textContent = '❌ No se pudo decodificar el archivo';
+    status('Error al cargar: ' + err.message, 'error');
+  }
+}
 
-            stop() {
-                this.pause();
-                
-                // Resetear ambos al inicio
-                this.audio1.currentTime = 0;
-                this.audio2.currentTime = 0;
-                
-                this.updateProgress();
-                this.updateStatus('⏹️ Detenido', 'ready');
-            }
+/* ================= SALIDA / DISPOSITIVOS ================= */
+async function refreshDevices(askPermission = false) {
+  if (askPermission) {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach(x => x.stop());
+    } catch (_) {
+      status('Sin permiso de audio: los nombres de dispositivos pueden no verse', 'warn');
+    }
+  }
+  const devs = await navigator.mediaDevices.enumerateDevices();
+  outputs = devs.filter(d => d.kind === 'audiooutput');
 
-            seek(value) {
-                const time = (value / 100) * this.audio1.duration;
-                
-                // Sincronizar ambos al mismo tiempo
-                this.audio1.currentTime = time;
-                this.audio2.currentTime = time;
-                
-                console.log(`Seek a: ${this.formatTime(time)}`);
-            }
+  const sel = $('deviceSelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— Elige interfaz de salida —</option>';
+  outputs.forEach((d, i) => {
+    const o = new Option(d.label || `Dispositivo ${i + 1}`, d.deviceId);
+    sel.add(o);
+  });
+  if (prev && outputs.some(d => d.deviceId === prev)) sel.value = prev;
 
-            setVolume(track, value) {
-                if (track === 1) {
-                    this.audio1.volume = parseFloat(value);
-                } else {
-                    this.audio2.volume = parseFloat(value);
-                }
-            }
+  // Seguridad: si la interfaz elegida desaparece, silencio inmediato
+  if (outputChosen && !outputs.some(d => d.deviceId === prev)) {
+    panic();
+    outputChosen = false;
+    status('⚠️ La interfaz se desconectó. Silencio. Vuelve a elegirla.', 'error');
+  }
+}
 
-            updateDuration() {
-                if (this.audioLoaded[1] && this.audioLoaded[2]) {
-                    const duration = Math.max(this.audio1.duration || 0, this.audio2.duration || 0);
-                    document.getElementById('duration').textContent = this.formatTime(duration);
-                }
-            }
+async function chooseOutput(id) {
+  if (playing) panic();
+  try {
+    await ctx.setSinkId(id);
+    outputChosen = true;
+    const ch = configureChannels();
+    fillPairs(ch / 2);
+    $('chInfo').textContent = `Canales detectados: ${ctx.destination.maxChannelCount} · usando: ${ch}`;
+    if (ch < 4) {
+      status('Interfaz con solo 2 canales: ambas pistas comparten salida', 'warn');
+    } else {
+      status('Salida lista', 'ok');
+    }
+  } catch (err) {
+    outputChosen = false;
+    status('Error al configurar la salida: ' + err.message, 'error');
+  }
+}
 
-            updateProgress() {
-                if (!this.isSeeking && this.audioLoaded[1]) {
-                    const currentTime = this.audio1.currentTime;
-                    const duration = this.audio1.duration;
-                    const slider = document.getElementById('seekSlider');
-                    slider.value = (currentTime / duration) * 100;
-                    document.getElementById('currentTime').textContent = this.formatTime(currentTime);
-                }
-            }
+function fillPairs(n) {
+  for (const t of tracks) {
+    const sel = $('pair' + t.n);
+    sel.innerHTML = '';
+    for (let k = 0; k < n; k++) sel.add(new Option(`Canales ${2 * k + 1}-${2 * k + 2}`, k));
+    t.pair = t.pair < n ? t.pair : 0;
+    sel.value = t.pair;
+    routeTrack(t);
+  }
+}
 
-            handleEnded() {
-                // Solo detener si ambos terminaron
-                if (this.audio1.ended && this.audio2.ended) {
-                    this.stop();
-                }
-            }
+function pairsCount() { return $('pair1').options.length; }
+function applyPair(t, k) {
+  if (k >= 0 && k < pairsCount()) {
+    t.pair = k;
+    $('pair' + t.n).value = k;
+    routeTrack(t);
+  }
+}
 
-            formatTime(seconds) {
-                if (isNaN(seconds) || seconds === Infinity) return '00:00';
-                const mins = Math.floor(seconds / 60);
-                const secs = Math.floor(seconds % 60);
-                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            }
+/* ================= PRUEBA DE SALIDA ================= */
+async function testTone(t) {
+  if (!outputChosen) return status('Elige primero la interfaz de salida', 'error');
+  await ctx.resume();
+  if (!playing) rampMaster(masterLevel(), 0.05);
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.frequency.value = t.n === 1 ? 440 : 660;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, now);
+  g.gain.linearRampToValueAtTime(0.1, now + 0.05);
+  g.gain.setValueAtTime(0.1, now + 0.9);
+  g.gain.linearRampToValueAtTime(0, now + 1.0);
+  const up = ctx.createGain();
+  up.channelCount = 2;
+  up.channelCountMode = 'explicit';
+  up.channelInterpretation = 'speakers';
+  const sp = ctx.createChannelSplitter(2);
+  osc.connect(g); g.connect(up); up.connect(sp);
+  const L = t.pair * 2;
+  sp.connect(merger, 0, L);
+  sp.connect(merger, 1, L + 1);
+  osc.start(now);
+  osc.stop(now + 1.05);
+  osc.onended = () => { sp.disconnect(); up.disconnect(); g.disconnect(); };
+  status(`🔈 Tono en pista ${t.n} → ${$('pair' + t.n).selectedOptions[0].text}`, 'ok');
+}
 
-            updateStatus(message, type) {
-                const status = document.getElementById('status');
-                status.textContent = message;
-                status.className = `status ${type}`;
-            }
+/* ================= PRESETS ================= */
+let presets = JSON.parse(localStorage.getItem(KEY) || '{}');
 
-            savePreset() {
-                const name = document.getElementById('presetNameInput').value.trim();
-                if (!name) {
-                    alert('❌ Ingresa un nombre para el preset');
-                    return;
-                }
+function savePreset() {
+  const name = $('presetName').value.trim();
+  if (!name) return status('Escribe un nombre para el preset', 'error');
+  const dev = outputs.find(d => d.deviceId === $('deviceSelect').value);
+  presets[name] = {
+    outputLabel: dev ? dev.label : '',
+    pairs: tracks.map(t => t.pair),
+    vols: tracks.map(t => +$('vol' + t.n).value),
+    delays: tracks.map(t => +$('delay' + t.n).value),
+    master: masterLevel(),
+    files: tracks.map(t => t.name),
+  };
+  localStorage.setItem(KEY, JSON.stringify(presets));
+  $('presetName').value = '';
+  renderPresets();
+  status(`💾 Preset "${name}" guardado`, 'ok');
+}
 
-                if (!this.audioFiles[1] || !this.audioFiles[2]) {
-                    alert('❌ Carga ambos audios primero');
-                    return;
-                }
+async function loadPreset(name) {
+  const p = presets[name];
+  if (!p) return;
 
-                const preset = {
-                    name,
-                    audio1: this.audioFiles[1].name,
-                    audio2: this.audioFiles[2].name,
-                    deviceId1: this.selectedDevice1,
-                    deviceId2: this.selectedDevice2,
-                    volume1: document.getElementById('volume1').value,
-                    volume2: document.getElementById('volume2').value,
-                    timestamp: new Date().toISOString()
-                };
+  // 1. Interfaz (debe ir primero: reconstruye los pares)
+  const dev = outputs.find(d => d.label === p.outputLabel);
+  if (dev) {
+    $('deviceSelect').value = dev.deviceId;
+    await chooseOutput(dev.deviceId);
+  } else if (p.outputLabel) {
+    status(`⚠️ Interfaz "${p.outputLabel}" no conectada`, 'error');
+    return;
+  }
 
-                this.presets[name] = preset;
-                localStorage.setItem('audioPresets', JSON.stringify(this.presets));
-                this.loadPresets();
-                document.getElementById('presetNameInput').value = '';
-                this.updateStatus(`💾 Preset "${name}" guardado`, 'success');
-            }
+  // 2. Pistas, volúmenes y retardos
+  tracks.forEach((t, i) => {
+    applyPair(t, p.pairs[i]);
+    $('vol' + t.n).value = p.vols[i];
+    setVol(t, p.vols[i]);
+    $('volVal' + t.n).textContent = Math.round(p.vols[i] * 100) + '%';
+    $('delay' + t.n).value = p.delays[i];
+    setDelay(t, p.delays[i]);
+    const need = p.files[i];
+    if (need && t.name !== need) {
+      $('info' + t.n).textContent = `Carga el archivo: "${need}"`;
+    }
+  });
 
-            loadPresets() {
-                const container = document.getElementById('presetList');
-                container.innerHTML = '';
+  // 3. Master
+  $('master').value = p.master;
+  $('masterVal').textContent = Math.round(p.master * 100) + '%';
+  if (playing) rampMaster(masterLevel(), 0.02);
 
-                const presetNames = Object.keys(this.presets);
-                
-                if (presetNames.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; opacity: 0.6;">No hay presets guardados</div>';
-                    return;
-                }
+  status(`📂 Preset "${name}" cargado`, 'ok');
+}
 
-                presetNames.forEach(name => {
-                    const preset = this.presets[name];
-                    const btn = document.createElement('div');
-                    btn.className = 'preset-btn';
-                    btn.innerHTML = `
-                        <strong>${name}</strong><br>
-                        <small>🎤 ${preset.audio1}<br>🎧 ${preset.audio2}</small>
-                        <button class="preset-delete" data-preset="${name}">🗑️</button>
-                    `;
-                    
-                    btn.addEventListener('click', (e) => {
-                        if (!e.target.classList.contains('preset-delete')) {
-                            this.loadPreset(name, e);
-                        }
-                    });
-                    
-                    const deleteBtn = btn.querySelector('.preset-delete');
-                    deleteBtn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        this.deletePreset(name);
-                    });
-                    
-                    container.appendChild(btn);
-                });
-            }
+function deletePreset(name) {
+  if (!confirm(`¿Eliminar preset "${name}"?`)) return;
+  delete presets[name];
+  localStorage.setItem(KEY, JSON.stringify(presets));
+  renderPresets();
+}
 
-            async loadPreset(name, event) {
-                const preset = this.presets[name];
-                if (!preset) return;
+function renderPresets() {
+  const list = $('presetList');
+  list.innerHTML = '';
+  const names = Object.keys(presets);
+  if (!names.length) {
+    list.innerHTML = '<p class="info">No hay presets guardados</p>';
+    return;
+  }
+  names.forEach(name => {
+    const row = document.createElement('div');
+    row.className = 'preset';
+    const info = document.createElement('div');
+    info.innerHTML = `<strong></strong><br><small></small>`;
+    info.querySelector('strong').textContent = name;
+    info.querySelector('small').textContent = presets[name].outputLabel || 'sin interfaz';
+    const load = document.createElement('button');
+    load.textContent = 'Cargar';
+    load.onclick = () => loadPreset(name);
+    const del = document.createElement('button');
+    del.textContent = '🗑️';
+    del.className = 'secondary';
+    del.onclick = () => deletePreset(name);
+    row.append(info, load, del);
+    list.appendChild(row);
+  });
+}
 
-                // Configurar volúmenes
-                document.getElementById('volume1').value = preset.volume1;
-                document.getElementById('volume2').value = preset.volume2;
-                this.setVolume(1, preset.volume1);
-                this.setVolume(2, preset.volume2);
-                document.getElementById('volumeValue1').textContent = Math.round(preset.volume1 * 100) + '%';
-                document.getElementById('volumeValue2').textContent = Math.round(preset.volume2 * 100) + '%';
-                
-                // Seleccionar dispositivos
-                if (preset.deviceId1) {
-                    const device1 = document.querySelector(`#deviceList1 [data-device-id="${preset.deviceId1}"]`);
-                    if (device1) await this.selectDevice(device1, 1);
-                }
-                
-                if (preset.deviceId2) {
-                    const device2 = document.querySelector(`#deviceList2 [data-device-id="${preset.deviceId2}"]`);
-                    if (device2) await this.selectDevice(device2, 2);
-                }
+/* ================= EVENTOS Y SEGURIDAD ================= */
+ctx.onstatechange = () => {
+  if (playing && ctx.state !== 'running') {
+    panic();
+    status('⚠️ El audio se suspendió. Silencio por seguridad.', 'error');
+  }
+};
 
-                // Marcar preset activo
-                document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
-                if (event) event.target.closest('.preset-btn').classList.add('active');
+navigator.mediaDevices.addEventListener('devicechange', () => {
+  refreshDevices().catch(() => {});
+});
 
-                this.updateStatus(`📂 Preset "${name}" cargado`, 'success');
-            }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && playing) keepAwake(true);
+});
 
-            deletePreset(name) {
-                if (confirm(`¿Eliminar preset "${name}"?`)) {
-                    delete this.presets[name];
-                    localStorage.setItem('audioPresets', JSON.stringify(this.presets));
-                    this.loadPresets();
-                    this.updateStatus(`🗑️ Preset "${name}" eliminado`, 'ready');
-                }
-            }
-        }
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input[type=text], input[type=number], select')) return;
+  if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
+  if (e.code === 'Escape') panic();
+});
 
-        // Inicializar
-        document.addEventListener('DOMContentLoaded', () => {
-            if (!HTMLMediaElement.prototype.setSinkId) {
-                alert('⚠️ Tu navegador no soporta selección de dispositivos. Usa Chrome, Edge u Opera.');
-            }
-            
-            window.audioPlayer = new MultiTrackAudioPlayer();
-        });
-    </script>
+$('file1').addEventListener('change', e => loadFile(tracks[0], e.target.files[0]));
+$('file2').addEventListener('change', e => loadFile(tracks[1], e.target.files[0]));
+
+$('refreshBtn').addEventListener('click', () => refreshDevices(true).catch(err => status(err.message, 'error')));
+$('deviceSelect').addEventListener('change', e => {
+  if (!e.target.value) { outputChosen = false; return; }
+  chooseOutput(e.target.value);
+});
+
+$('pair1').addEventListener('change', e => applyPair(tracks[0], +e.target.value));
+$('pair2').addEventListener('change', e => applyPair(tracks[1], +e.target.value));
+
+tracks.forEach(t => {
+  $('vol' + t.n).addEventListener('input', e => {
+    setVol(t, +e.target.value);
+    $('volVal' + t.n).textContent = Math.round(e.target.value * 100) + '%';
+  });
+  $('delay' + t.n).addEventListener('change', e => setDelay(t, e.target.value));
+  $('test' + t.n).addEventListener('click', () => testTone(t));
+});
+
+$('master').addEventListener('input', e => {
+  $('masterVal').textContent = Math.round(e.target.value * 100) + '%';
+  if (playing) rampMaster(masterLevel(), 0.02);
+});
+
+$('playBtn').addEventListener('click', () => playing ? pause() : play());
+$('stopBtn').addEventListener('click', stop);
+$('panicBtn').addEventListener('click', panic);
+
+$('seek').addEventListener('input', e => {
+  seeking = true;
+  updateTime(duration ? (e.target.value / 1000) * duration : 0);
+});
+$('seek').addEventListener('change', e => {
+  seeking = false;
+  seekTo((e.target.value / 1000) * duration);
+});
+
+$('savePreset').addEventListener('click', savePreset);
+
+// Inicio
+renderPresets();
+updateTime(0);
+setButtons();
+refreshDevices().then(() => status('Elige la interfaz de salida para empezar', ''))
+  .catch(() => status('Pulsa "Detectar / permitir" para ver las interfaces', 'warn'));
+</script>
 </body>
 </html>
