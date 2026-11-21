@@ -77,6 +77,7 @@
   <div class="row">
     <button id="playBtn">▶️ Play</button>
     <button id="stopBtn" class="secondary">⏹️ Stop</button>
+    <button id="resyncBtn" class="secondary">🔁 Reajustar</button>
     <button id="panicBtn" class="panic">🛑 PÁNICO</button>
     <span class="time" id="time">00:00 / 00:00</span>
   </div>
@@ -109,6 +110,8 @@ window.addEventListener('unhandledrejection', e =>
 const CAP = 0.8;              // tope de seguridad por pista
 const MAX_DELAY = 1.0;        // retardo máximo en segundos
 const START_LEAD_MS = 150;    // margen para programar el arranque simultáneo
+const RESYNC_GAP_MS = 1;      // silencio de corte al reajustar
+const RESYNC_LEAD_MS = 20;    // margen de programación al reajustar
 const KEY = 'inearPresets2';
 
 const $ = id => document.getElementById(id);
@@ -123,7 +126,7 @@ const level = () => +$('master').value;
 /* ================= ESTADO ================= */
 let outputs = [];
 let playing = false, offset = 0, wallStart = 0, duration = 0;
-let rafId = 0, stopTimer = 0, seekTimer = 0, seeking = false, wakeLock = null;
+let rafId = 0, stopTimer = 0, seekTimer = 0, resyncTimer = 0, seeking = false, wakeLock = null;
 const peakBuf = new Float32Array(1024);
 
 /* ================= MOTOR: UN CONTEXTO POR PISTA ================= */
@@ -194,9 +197,9 @@ const pos = () => playing
   ? Math.min(duration, Math.max(offset, offset + (performance.now() - wallStart) / 1000))
   : offset;
 
-function startSources(at) {
+function startSources(at, leadMs = START_LEAD_MS) {
   stopSources();
-  const wall = performance.now() + START_LEAD_MS;
+  const wall = performance.now() + leadMs;
   for (const t of tracks) {
     if (!t.buffer) continue;
     const s = t.ac.createBufferSource();
@@ -241,7 +244,7 @@ function updateTime(p = pos()) {
 }
 
 async function play() {
-  if (playing) return;
+  if (playing || resyncTimer) return;
   const loaded = tracks.filter(t => t.buffer);
   if (!loaded.length) return setStatus('Carga al menos una pista', 'error');
   const missing = loaded.filter(t => !t.ok);
@@ -262,6 +265,8 @@ async function play() {
 }
 
 function pause() {
+  clearTimeout(resyncTimer);
+  resyncTimer = 0;
   if (!playing) return;
   offset = pos();
   playing = false;
@@ -283,6 +288,8 @@ function stop() {
 }
 
 function panic() {
+  clearTimeout(resyncTimer);
+  resyncTimer = 0;
   if (playing) offset = pos();
   playing = false;
   cancelAnimationFrame(rafId);
@@ -307,6 +314,33 @@ function seekTo(sec) {
     rampAll(level(), 0.03);
   }, 30);
   updateTime(sec);
+}
+
+/* ================= REAJUSTE DE SINCRONÍA ================= */
+// Corta ambas pistas a la vez, espera RESYNC_GAP_MS y las vuelve a arrancar
+// en la misma posición, con el mismo instante de arranque en cada salida.
+function resync() {
+  if (!playing) return setStatus('Pulsa Play antes de reajustar', 'warn');
+  if (resyncTimer) return;
+
+  const at = pos();
+  playing = false;
+  cancelAnimationFrame(rafId);
+  stopSources();
+  resetMeters();
+  offset = at;
+  setButtons();
+  setStatus('🔁 Reajustando…', 'warn');
+
+  resyncTimer = setTimeout(async () => {
+    resyncTimer = 0;
+    await Promise.all(tracks.map(t => t.ac.resume()));
+    startSources(at, RESYNC_LEAD_MS);
+    playing = true;
+    setButtons();
+    rafId = requestAnimationFrame(loop);
+    setStatus(`🔁 Reajustado en ${fmt(at)}`, 'ok');
+  }, RESYNC_GAP_MS);
 }
 
 function loop() {
@@ -582,6 +616,7 @@ $('master').addEventListener('input', e => {
 
 $('playBtn').addEventListener('click', () => playing ? pause() : play());
 $('stopBtn').addEventListener('click', stop);
+$('resyncBtn').addEventListener('click', resync);
 $('panicBtn').addEventListener('click', panic);
 
 $('seek').addEventListener('input', e => {
