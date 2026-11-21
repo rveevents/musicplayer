@@ -104,7 +104,6 @@
 'use strict';
 
 /* ================= ERRORES VISIBLES ================= */
-// Cualquier error de script se muestra en pantalla en lugar de quedarse en silencio
 window.addEventListener('error', e => setStatusSafe('Error de script: ' + e.message, 'error'));
 window.addEventListener('unhandledrejection', e =>
   setStatusSafe('Error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason), 'error'));
@@ -140,24 +139,15 @@ const masterLevel = () => +$('master').value;
 /* ================= MOTOR DE AUDIO ================= */
 const ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
 
-// Bus: 8 entradas -> limitador -> master -> salida
+// Bus: 8 entradas -> master (GainNode admite 8 canales) -> salida
+// El limitador va en cada pista (es estéreo, máximo 2 canales)
 const merger = ctx.createChannelMerger(BUS_CH);
-const limiter = ctx.createDynamicsCompressor();
-limiter.threshold.value = -1;
-limiter.knee.value = 0;
-limiter.ratio.value = 20;
-limiter.attack.value = 0.001;
-limiter.release.value = 0.1;
 const master = ctx.createGain();
 master.gain.value = 0;   // se sube con fade-in al dar Play
-
-for (const n of [limiter, master]) {
-  n.channelCount = BUS_CH;
-  n.channelCountMode = 'explicit';
-  n.channelInterpretation = 'discrete';
-}
-merger.connect(limiter);
-limiter.connect(master);
+master.channelCount = BUS_CH;
+master.channelCountMode = 'explicit';
+master.channelInterpretation = 'discrete';
+merger.connect(master);
 master.connect(ctx.destination);
 
 function configureChannels() {
@@ -169,24 +159,35 @@ function configureChannels() {
   return ch;
 }
 
-// Pistas: fuente -> retardo -> volumen -> upmix estéreo -> splitter -> pares de canales
+// Pistas: fuente -> retardo -> volumen -> upmix estéreo -> limitador -> splitter -> pares de canales
 const tracks = [1, 2].map((n, i) => {
   const t = {
     n, buffer: null, name: '', src: null, pair: i,
     delay: ctx.createDelay(MAX_DELAY),
     gain: ctx.createGain(),
     up: ctx.createGain(),
+    limiter: ctx.createDynamicsCompressor(),
     split: ctx.createChannelSplitter(2),
     analyser: ctx.createAnalyser(),
   };
   t.gain.gain.value = 0.8 * CAP;
+
   t.up.channelCount = 2;
   t.up.channelCountMode = 'explicit';
   t.up.channelInterpretation = 'speakers';
+
+  t.limiter.threshold.value = -1;
+  t.limiter.knee.value = 0;
+  t.limiter.ratio.value = 20;
+  t.limiter.attack.value = 0.001;
+  t.limiter.release.value = 0.1;
+
   t.analyser.fftSize = 1024;
+
   t.delay.connect(t.gain);
   t.gain.connect(t.up);
-  t.up.connect(t.split);
+  t.up.connect(t.limiter);
+  t.limiter.connect(t.split);
   t.gain.connect(t.analyser);   // solo medidor
   routeTrack(t);
   return t;
@@ -403,7 +404,6 @@ async function refreshDevices(askPermission = false) {
   });
   if (prev && outputs.some(d => d.deviceId === prev)) sel.value = prev;
 
-  // Seguridad: si la interfaz elegida desaparece, silencio inmediato
   if (outputChosen && !outputs.some(d => d.deviceId === prev)) {
     panic();
     outputChosen = false;
@@ -471,14 +471,11 @@ async function testTone(t) {
   up.channelCount = 2;
   up.channelCountMode = 'explicit';
   up.channelInterpretation = 'speakers';
-  const sp = ctx.createChannelSplitter(2);
-  osc.connect(g); g.connect(up); up.connect(sp);
-  const L = t.pair * 2;
-  sp.connect(merger, 0, L);
-  sp.connect(merger, 1, L + 1);
+  // El tono pasa por el limitador de la pista y luego por su par de salida
+  osc.connect(g); g.connect(up); up.connect(t.limiter);
   osc.start(now);
   osc.stop(now + 1.05);
-  osc.onended = () => { sp.disconnect(); up.disconnect(); g.disconnect(); };
+  osc.onended = () => { up.disconnect(); g.disconnect(); };
   status(`🔈 Tono en pista ${t.n} → ${$('pair' + t.n).selectedOptions[0].text}`, 'ok');
 }
 
